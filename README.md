@@ -1,141 +1,100 @@
-# mcp-yandex-direct
+# Yandex Direct MCP
 
-An [MCP](https://modelcontextprotocol.io) server for the **Yandex Direct API v5**. It lets MCP-compatible clients (Claude Desktop, Claude Code, etc.) manage PPC campaigns, ad groups, ads and keywords, and pull performance statistics.
+MCP-сервер для **Yandex Direct API v5**. Управляйте контекстной рекламой прямо из Claude (и других MCP-клиентов): кампании, группы, объявления, ключевые фразы, ставки, корректировки, расширения и статистика — на естественном языке.
 
-This is an original, from-scratch implementation released under the MIT license.
+Покрыт весь API v5: частые операции — через удобные инструменты, всё остальное — через универсальный `raw_request`.
 
-## Tools
+## Быстрая установка
 
-The server exposes typed tools for the common objects, plus a generic `raw_request` escape hatch for any other service/method — so the **entire API v5 is reachable**.
-
-**Account & reference**
-
-| Tool | Description |
-| --- | --- |
-| `get_account_info` | Account details: login, currency, type, country. |
-| `get_quota` | Remaining daily API points (Units: spent / rest / limit). |
-| `get_regions` | Look up geo region ids by name (for `create_ad_group`). |
-| `get_dictionaries` | Reference dictionaries (currencies, time zones, constants, ...). |
-
-**Campaigns, ad groups, ads, keywords**
-
-| Tool | Description |
-| --- | --- |
-| `list_campaigns` / `create_text_campaign` / `update_campaign` / `campaign_action` | List, create, update (name, budget, **negative keywords**), suspend/resume/archive/delete. |
-| `list_ad_groups` / `create_ad_group` / `update_ad_group` | List, create, update ad groups (name, regions, **negative keywords**). |
-| `list_ads` / `create_text_ad` / `update_text_ad` / `ad_action` | List, create, update text ads, and moderate/suspend/resume/archive/delete. |
-| `list_keywords` / `add_keywords` / `set_keyword_bids` / `keyword_action` | List, add, set manual bids, suspend/resume/delete keywords. |
-
-**Bid modifiers**
-
-| Tool | Description |
-| --- | --- |
-| `get_bid_modifiers` | Read bid adjustments (mobile, desktop, demographics, retargeting, regional, video). |
-| `add_bid_modifier` | Add an adjustment to a campaign or ad group. |
-| `set_bid_modifiers` | Change percent and/or enable/disable existing modifiers. |
-| `delete_bid_modifiers` | Delete modifiers by id. |
-
-**Ad assets**
-
-| Tool | Description |
-| --- | --- |
-| `get_sitelinks` / `create_sitelinks_set` / `delete_sitelinks` | Sitelink sets (быстрые ссылки). |
-| `get_callouts` / `add_callouts` / `delete_callouts` | Callouts (уточнения). |
-| `get_vcards` / `create_vcard` / `delete_vcards` | Virtual business cards (визитки). |
-| `get_ad_images` / `get_ad_videos` / `get_creatives` | Read the image / video / creative libraries. |
-
-**Statistics & escape hatch**
-
-| Tool | Description |
-| --- | --- |
-| `get_statistics` | TSV performance report via the Reports service. |
-| `raw_request` | Call any service/method directly (full API coverage). Writes require `confirmWrite=true`. |
-
-Monetary values use account currency units in the typed tools both ways: inputs (budgets, bids) are converted to micros automatically, and `list_*` output is converted back. `raw_request` is raw (micros). List tools accept `limit`/`offset` plus an `autoPaginate` flag that follows the `LimitedBy` cursor.
-
-## Requirements
-
-- Node.js 18+
-- A Yandex Direct OAuth token ([how to get one](https://yandex.com/dev/direct/doc/dg/concepts/auth-token.html))
-
-## Setup
+**Claude Code** — одной командой:
 
 ```bash
-npm install
-npm run build
+claude mcp add yandex-direct -e YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y @gistrec/mcp-yandex-direct
 ```
 
-## Configuration
-
-The server is configured through environment variables:
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `YANDEX_DIRECT_TOKEN` | yes | — | OAuth token for the Yandex Direct API. |
-| `YANDEX_DIRECT_LOGIN` | no | — | `Client-Login` header (agency accounts only). |
-| `YANDEX_DIRECT_LANG` | no | `ru` | `Accept-Language` for API responses (`ru`, `en`, `uk`, `tr`). |
-| `YANDEX_DIRECT_SANDBOX` | no | `false` | Set to `true` to target the API sandbox. |
-| `YANDEX_DIRECT_TIMEOUT_MS` | no | `60000` | Per-request timeout in milliseconds. |
-| `YANDEX_DIRECT_MAX_RETRIES` | no | `3` | Retries for transient errors (rate limits, 5xx). |
-
-> Tip: start with `YANDEX_DIRECT_SANDBOX=true` to experiment safely before touching live campaigns.
-
-## Usage with an MCP client
-
-Once published, run it with `npx` — no local build required:
+**Claude Desktop / Cursor / другой MCP-клиент** — добавьте в конфиг:
 
 ```json
 {
   "mcpServers": {
     "yandex-direct": {
       "command": "npx",
-      "args": ["-y", "mcp-yandex-direct"],
-      "env": {
-        "YANDEX_DIRECT_TOKEN": "your-oauth-token",
-        "YANDEX_DIRECT_SANDBOX": "true"
-      }
+      "args": ["-y", "@gistrec/mcp-yandex-direct"],
+      "env": { "YANDEX_DIRECT_TOKEN": "ваш_токен" }
     }
   }
 }
 ```
 
-Or point `args` at a local build (copy `.mcp.json.example` to your client config and set your token):
+## Получение токена
 
-```json
-{
-  "mcpServers": {
-    "yandex-direct": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-yandex-direct/dist/index.js"],
-      "env": {
-        "YANDEX_DIRECT_TOKEN": "your-oauth-token",
-        "YANDEX_DIRECT_SANDBOX": "true"
-      }
-    }
-  }
-}
-```
+Откройте ссылку, **залогинившись под аккаунтом с доступом к нужному кабинету Яндекс Директа**, и подтвердите доступ — токен покажется на странице:
 
-## Development
+[**→ Получить токен**](https://oauth.yandex.ru/authorize?response_type=token&client_id=7659d6ec6b044aafa6b5e3a00e8e35bb)
 
-```bash
-npm run dev        # run from source with tsx watch
-npm test           # run unit tests (no network)
-npm run typecheck  # type-check sources and tests (no emit)
-npm run build      # emit dist/ (excludes tests)
-```
+Скопируйте токен в `YANDEX_DIRECT_TOKEN`. Токен персональный (привязан к вашему кабинету) и действует около года; при утере его можно получить заново по той же ссылке. Для агентских аккаунтов добавьте `YANDEX_DIRECT_LOGIN` — логин клиента.
 
-### Live smoke check
+## Примеры запросов
 
-`npm run smoke` runs a **read-only** check against the account in your environment
-(account info, quota, and the first few campaigns). It makes no writes. Run it
-locally with your own token — never put a production token in CI:
+Просто пишите Claude на русском:
 
-```bash
-YANDEX_DIRECT_TOKEN=your-oauth-token npm run smoke
-# or YANDEX_DIRECT_SANDBOX=true YANDEX_DIRECT_TOKEN=... npm run smoke
-```
+- «Покажи все кампании и их статус»
+- «Сколько я потратил за последние 7 дней? Разбей по дням»
+- «Какие ключевые фразы тратят бюджет, но не приносят кликов?»
+- «Добавь минус-слова "бесплатно" и "онлайн" в кампанию 708589088»
+- «Подними ставки до 3 ₽ на фразы с CTR выше 15%»
+- «Найди id региона Москва и создай группу с таргетингом на Москву»
+- «Поставь корректировку −20% на мобильные в кампании X»
+- «Покажи мои уточнения и быстрые ссылки»
 
-## License
+## Пример: аудит кампании
 
-MIT — see [LICENSE](./LICENSE).
+> **Вы:** Проанализируй кампанию ClearTranscriptBot за последнюю неделю и предложи, что улучшить.
+
+> **Claude** *(вызывает `get_statistics`, `list_keywords`, `get_bid_modifiers`, `get_callouts`)*:
+>
+> Кампания «EPK/Поиск — бот в Max и Telegram» за 7 дней:
+>
+> | Дата | Показы | Клики | CTR | Расход, ₽ | Ср. клик, ₽ |
+> |------|-------:|------:|----:|----------:|------------:|
+> | 08.06 | 544 | 90 | 16.5% | 782.50 | 8.69 |
+> | 09.06 | 456 | 70 | 15.4% | 528.93 | 7.56 |
+> | 10.06 | 206 | 39 | 18.9% | 254.48 | 6.53 |
+> | 11.06 | 198 | 36 | 18.2% | 205.87 | 5.72 |
+> | 12.06 | 275 | 37 | 13.5% | 178.95 | 4.84 |
+> | 13.06 | 332 | 45 | 13.6% | 214.62 | 4.77 |
+> | 14.06 | 419 | 82 | 19.6% | 481.55 | 5.87 |
+> | **Итого** | **2 430** | **399** | **16.4%** | **2 646.90** | **6.63** |
+>
+> **Что улучшить:**
+> 1. **Автотаргетинг забирает почти весь трафик.** Условие `---autotargeting` собирает основную долю показов и кликов, а ваши ключи («расшифровка интервью», «транскрибация записи» …) получают по 1–22 показа и почти 0 кликов. Стоит проверить, не каннибализирует ли автотаргетинг фразы, и либо усилить ставки на ключи, либо точнее настроить автотаргетинг.
+> 2. **Ставки на минимуме (0.30 ₽), а CTR высокий (16–20%).** На поиске при таком CTR имеет смысл протестировать повышение ставок на топ-фразы — заберёте больше недорогих показов.
+> 3. **Объявление 17674525479 отстаёт** (CTR 2–10% против 17–20% у основного). Кандидат на переработку заголовка/текста или отключение.
+> 4. **Возрастные корректировки 0–17 и 18–24 обнулены.** Если ваша ЦА — взрослые, всё ок; иначе проверьте, не режете ли платёжеспособную аудиторию.
+> 5. **Расширения настроены хорошо:** 9 уточнений + 3 быстрые ссылки. Можно добавить ещё пару быстрых ссылок (лимит — 8).
+>
+> Хотите, подниму ставки на топ-фразы и отключу слабое объявление? *(перед записью спрошу подтверждение)*
+
+Все операции записи (изменение ставок, бюджетов, минус-слов, статусов) сервер выполняет только по вашему явному запросу.
+
+## Настройка
+
+| Переменная | Обяз. | Описание |
+|---|---|---|
+| `YANDEX_DIRECT_TOKEN` | да | OAuth-токен Яндекс Директа. |
+| `YANDEX_DIRECT_LOGIN` | нет | Логин клиента (для агентских аккаунтов). |
+
+Остальные переменные (язык ответов, таймауты, повторы, песочница) и полный список инструментов — в [документации](https://github.com/gistrec/mcp-yandex-direct/blob/main/docs/TOOLS.md).
+
+## Документация
+
+- [Все инструменты](https://github.com/gistrec/mcp-yandex-direct/blob/main/docs/TOOLS.md) — полный список с описанием.
+- [Разработка](https://github.com/gistrec/mcp-yandex-direct/blob/main/docs/DEVELOPMENT.md) — сборка, тесты, smoke-проверка.
+
+## Поддержка
+
+Вопросы, идеи и доработки — пишите в Telegram: [@gistrec](http://t.me/gistrec).
+
+## Лицензия
+
+MIT — см. [LICENSE](./LICENSE).
