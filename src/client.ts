@@ -63,6 +63,7 @@ export class YandexDirectClient {
       skipReportSummary: "true",
     });
     const maxPolls = opts.maxPolls ?? 10;
+    let lastStatus = 0;
 
     for (let attempt = 0; attempt < maxPolls; attempt++) {
       const res = await fetch(url, {
@@ -70,13 +71,16 @@ export class YandexDirectClient {
         headers,
         body: JSON.stringify({ params }),
       });
+      lastStatus = res.status;
 
       if (res.status === 200) return res.text();
 
-      if (res.status === 201 || res.status === 202) {
-        const retryIn = Number(res.headers.get("retryIn") ?? 5);
-        const waitMs = Math.min(Number.isFinite(retryIn) ? retryIn : 5, 10) * 1000;
-        await delay(waitMs);
+      // 201/202: report still generating. 5xx: transient server error during
+      // generation — the docs recommend retrying after retryIn rather than
+      // treating it as fatal. Both are retried within the poll budget.
+      if (res.status === 201 || res.status === 202 || (res.status >= 500 && res.status < 600)) {
+        if (attempt === maxPolls - 1) break;
+        await delay(pollDelayMs(res));
         continue;
       }
 
@@ -90,8 +94,14 @@ export class YandexDirectClient {
       throw new Error(`Report request failed (HTTP ${res.status}): ${errText.slice(0, 500)}`);
     }
 
-    throw new Error(`Report was not ready after ${maxPolls} polls`);
+    throw new Error(`Report was not ready after ${maxPolls} polls (last HTTP ${lastStatus})`);
   }
+}
+
+/** Seconds to wait before re-polling a report, from the retryIn header (capped). */
+function pollDelayMs(res: Response): number {
+  const retryIn = Number(res.headers.get("retryIn") ?? 5);
+  return Math.min(Number.isFinite(retryIn) ? retryIn : 5, 10) * 1000;
 }
 
 function delay(ms: number): Promise<void> {

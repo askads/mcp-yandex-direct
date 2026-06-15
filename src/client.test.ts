@@ -91,3 +91,41 @@ test("report() returns TSV body on HTTP 200", async () => {
     mock.restore();
   }
 });
+
+test("report() retries a transient 5xx and then returns the body", async () => {
+  const tsv = "Date\tClicks\n2026-01-01\t1\n";
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) {
+      return new Response("upstream error", { status: 500, headers: { retryIn: "0" } });
+    }
+    return new Response(tsv, { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const out = await client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" });
+    assert.equal(out, tsv);
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("report() gives up on a persistent 5xx after maxPolls", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response("err", { status: 503, headers: { retryIn: "0" } });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(
+      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 3 }),
+      /last HTTP 503/,
+    );
+    assert.equal(calls, 3);
+  } finally {
+    mock.restore();
+  }
+});
