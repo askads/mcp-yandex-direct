@@ -92,6 +92,87 @@ test("report() returns TSV body on HTTP 200", async () => {
   }
 });
 
+test("call() retries a 506 rate-limit error then returns the result", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({ error: { error_code: 506, error_string: "Too many requests" } }),
+        { status: 200 },
+      );
+    }
+    return new Response(JSON.stringify({ result: { Campaigns: [] } }), { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    const result = await client.call("campaigns", "get", {});
+    assert.deepEqual(result, { Campaigns: [] });
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() retries an HTTP 5xx then returns the result", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) return new Response("bad gateway", { status: 502 });
+    return new Response(JSON.stringify({ result: { ok: true } }), { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    const result = await client.call("campaigns", "get", {});
+    assert.deepEqual(result, { ok: true });
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() does not retry a non-retryable error code", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response(
+      JSON.stringify({ error: { error_code: 53, error_string: "Authorization error" } }),
+      { status: 200 },
+    );
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    await assert.rejects(() => client.call("clients", "get", {}), /\[53\]/);
+    assert.equal(calls, 1);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() gives up after maxRetries on a persistent rate limit", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response(
+      JSON.stringify({ error: { error_code: 506, error_string: "Too many requests" } }),
+      { status: 200 },
+    );
+  });
+  try {
+    const client = new YandexDirectClient({
+      token: "T",
+      lang: "ru",
+      sandbox: true,
+      retryBaseMs: 0,
+      maxRetries: 2,
+    });
+    await assert.rejects(() => client.call("campaigns", "get", {}), /\[506\]/);
+    assert.equal(calls, 3); // initial + 2 retries
+  } finally {
+    mock.restore();
+  }
+});
+
 test("call() aborts and reports a timeout when the request hangs", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = ((_url: unknown, init: unknown) =>

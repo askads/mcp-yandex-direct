@@ -5,6 +5,10 @@ export interface YandexDirectConfig {
   sandbox: boolean;
   /** Per-request timeout in milliseconds. Defaults to 60_000. */
   timeoutMs?: number;
+  /** Max retries for transient errors (rate limits, 5xx). Defaults to 3. */
+  maxRetries?: number;
+  /** Base backoff in milliseconds, doubled each retry. Defaults to 500. */
+  retryBaseMs?: number;
 }
 
 export interface ApiError {

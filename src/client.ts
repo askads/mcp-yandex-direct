@@ -10,13 +10,27 @@ export interface ReportOptions {
   maxPolls?: number;
 }
 
+/** API error codes that are transient and worth retrying: 52 = try again later, 506 = request rate exceeded. */
+const RETRYABLE_CODES = new Set([52, 506]);
+
 export class YandexDirectClient {
   private readonly base: string;
   private readonly timeoutMs: number;
+  private readonly maxRetries: number;
+  private readonly retryBaseMs: number;
 
   constructor(private readonly config: YandexDirectConfig) {
     this.base = config.sandbox ? SANDBOX_BASE : PROD_BASE;
     this.timeoutMs = config.timeoutMs ?? 60_000;
+    this.maxRetries = config.maxRetries ?? 3;
+    this.retryBaseMs = config.retryBaseMs ?? 500;
+  }
+
+  /** Backoff before a retry: honors Retry-After when present, else exponential (capped at 30s). */
+  private backoffMs(attempt: number, res?: Response): number {
+    const retryAfter = res ? Number(res.headers.get("Retry-After")) : NaN;
+    if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter, 30) * 1000;
+    return Math.min(this.retryBaseMs * 2 ** attempt, 30_000);
   }
 
   /** fetch with an AbortController timeout so a hung connection can't hang the tool forever. */
@@ -51,28 +65,48 @@ export class YandexDirectClient {
     method: string,
     params: Record<string, unknown>,
   ): Promise<T> {
-    const res = await this.fetchWithTimeout(
-      this.base + service,
-      {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify({ method, params }),
-      },
-      service,
-    );
-
-    const text = await res.text();
-    let data: { result?: T; error?: ApiError };
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(
-        `Invalid JSON response from "${service}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
+    for (let attempt = 0; ; attempt++) {
+      const res = await this.fetchWithTimeout(
+        this.base + service,
+        {
+          method: "POST",
+          headers: this.headers(),
+          body: JSON.stringify({ method, params }),
+        },
+        service,
       );
-    }
 
-    if (data.error) throw new YandexDirectError(data.error);
-    return data.result as T;
+      const text = await res.text();
+
+      // Gateway/server errors are transient — back off and retry.
+      if (res.status >= 500 && res.status < 600) {
+        if (attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt, res));
+          continue;
+        }
+        throw new Error(
+          `"${service}" failed with HTTP ${res.status} after ${attempt + 1} attempts: ${text.slice(0, 300)}`,
+        );
+      }
+
+      let data: { result?: T; error?: ApiError };
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(
+          `Invalid JSON response from "${service}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
+        );
+      }
+
+      if (data.error) {
+        if (RETRYABLE_CODES.has(data.error.error_code) && attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt, res));
+          continue;
+        }
+        throw new YandexDirectError(data.error);
+      }
+      return data.result as T;
+    }
   }
 
   /** Requests a TSV statistics report, polling while Yandex generates it. */
