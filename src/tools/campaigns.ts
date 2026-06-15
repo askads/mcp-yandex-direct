@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { compact, fail, ok, okOrPartial, toMicros } from "./util.js";
+import { compact, fail, normalizeMoney, ok, okOrPartial, toMicros } from "./util.js";
 
 const CAMPAIGN_TYPES = [
   "TEXT_CAMPAIGN",
@@ -31,7 +31,8 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
     "list_campaigns",
     {
       title: "List campaigns",
-      description: "Lists campaigns in the account with optional filtering by id, type, state and status.",
+      description:
+        "Lists campaigns with optional filtering by id, type, state and status. Monetary fields (e.g. DailyBudget.Amount) are returned in account currency units.",
       inputSchema: {
         ids: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
         types: z.array(z.enum(CAMPAIGN_TYPES)).optional().describe("Filter by campaign types."),
@@ -58,7 +59,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
         };
         if (limit) params.Page = { Limit: limit };
         const result = await client.call("campaigns", "get", params);
-        return ok(result);
+        return ok(normalizeMoney(result));
       } catch (e) {
         return fail(e);
       }

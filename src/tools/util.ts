@@ -73,6 +73,34 @@ export function toMicros(amount: number): number {
   return Math.round(amount * 1_000_000);
 }
 
+/** Converts micros back to account currency units (1_000_000 micros = 1 unit). */
+export function fromMicros(micros: number): number {
+  return micros / 1_000_000;
+}
+
+/**
+ * Money fields the JSON services always return in micros. The Reports service
+ * (statistics) already returns currency units, and inputs are taken in units,
+ * so list_* output is normalized here to keep money consistent across tools.
+ */
+const MONEY_FIELDS = new Set(["Bid", "ContextBid", "Amount"]);
+
+/** Recursively converts known money fields from micros to currency units, in place. */
+export function normalizeMoney<T>(value: T, fields: Set<string> = MONEY_FIELDS): T {
+  if (Array.isArray(value)) {
+    for (const item of value) normalizeMoney(item, fields);
+  } else if (value && typeof value === "object") {
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (fields.has(key) && typeof val === "number") {
+        (value as Record<string, unknown>)[key] = fromMicros(val);
+      } else {
+        normalizeMoney(val, fields);
+      }
+    }
+  }
+  return value;
+}
+
 /** Drops keys whose value is `undefined` so they are not sent to the API. */
 export function compact<T extends Record<string, unknown>>(obj: T): T {
   return Object.fromEntries(

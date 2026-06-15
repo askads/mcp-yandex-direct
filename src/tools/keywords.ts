@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { compact, fail, ok, okOrPartial, toMicros } from "./util.js";
+import { compact, fail, normalizeMoney, ok, okOrPartial, toMicros } from "./util.js";
 
 const DEFAULT_FIELDS = ["Id", "Keyword", "AdGroupId", "CampaignId", "Bid", "ContextBid", "State", "Status"];
 
@@ -10,7 +10,8 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
     "list_keywords",
     {
       title: "List keywords",
-      description: "Lists keywords filtered by campaign, ad group or id.",
+      description:
+        "Lists keywords filtered by campaign, ad group or id. Bid and ContextBid are returned in account currency units.",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
         adGroupIds: z.array(z.number().int()).optional().describe("Filter by ad group ids."),
@@ -32,7 +33,7 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
         };
         if (limit) params.Page = { Limit: limit };
         const result = await client.call("keywords", "get", params);
-        return ok(result);
+        return ok(normalizeMoney(result));
       } catch (e) {
         return fail(e);
       }

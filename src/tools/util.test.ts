@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { okOrPartial, toMicros } from "./util.js";
+import { normalizeMoney, okOrPartial, toMicros } from "./util.js";
 
 function textOf(result: { content: { type: string; text: string }[] }): string {
   return result.content.map((c) => c.text).join("");
@@ -43,4 +43,23 @@ test("okOrPartial ignores arrays that are not *Results", () => {
 test("toMicros rounds currency units to integer micros", () => {
   assert.equal(toMicros(0.3), 300000);
   assert.equal(toMicros(12.34), 12340000);
+});
+
+test("normalizeMoney converts keyword bids from micros to units", () => {
+  const result = normalizeMoney({
+    Keywords: [{ Id: 1, Keyword: "x", Bid: 300000, ContextBid: 12340000 }],
+  });
+  assert.deepEqual(result.Keywords[0], { Id: 1, Keyword: "x", Bid: 0.3, ContextBid: 12.34 });
+});
+
+test("normalizeMoney converts nested DailyBudget.Amount and leaves null/non-money alone", () => {
+  const result = normalizeMoney({
+    Campaigns: [
+      { Id: 7, DailyBudget: { Amount: 1_000_000_000, Mode: "STANDARD" } },
+      { Id: 8, DailyBudget: null },
+    ],
+  });
+  assert.equal(result.Campaigns[0].DailyBudget.Amount, 1000);
+  assert.equal(result.Campaigns[0].Id, 7);
+  assert.equal(result.Campaigns[1].DailyBudget, null);
 });
