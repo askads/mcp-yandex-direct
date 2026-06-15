@@ -1,0 +1,28 @@
+name: Sandbox health check
+
+# Read + write round-trip against the API sandbox (synthetic data, no real money).
+# Runs on push to main and daily; never on pull_request, so the token secret is
+# not exposed to PRs or forks.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    if: github.repository == 'gistrec/mcp-yandex-direct'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Sandbox integration check (read + write round-trip)
+        run: npm run integration
+        env:
+          YANDEX_DIRECT_SANDBOX: "true"
+          YANDEX_DIRECT_TOKEN: ${{ secrets.YANDEX_DIRECT_TOKEN }}
