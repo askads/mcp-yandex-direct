@@ -23,19 +23,18 @@ function harness() {
   return { calls, tools };
 }
 
-test("get_sitelinks requests SitelinkFieldNames and empty selection without ids", async () => {
+test("get_sitelinks fetches by required ids and requests SitelinkFieldNames", async () => {
   const { calls, tools } = harness();
-  await tools.get_sitelinks({});
+  await tools.get_sitelinks({ ids: [3] });
   assert.equal(calls[0].service, "sitelinks");
   assert.equal(calls[0].method, "get");
-  assert.deepEqual(calls[0].params.SelectionCriteria, {});
+  assert.deepEqual(calls[0].params.SelectionCriteria, { Ids: [3] });
   assert.ok(calls[0].params.SitelinkFieldNames.includes("Title"));
 });
 
-test("get_sitelinks filters by ids and paginates", async () => {
+test("get_sitelinks paginates", async () => {
   const { calls, tools } = harness();
   await tools.get_sitelinks({ ids: [3], limit: 10, offset: 5 });
-  assert.deepEqual(calls[0].params.SelectionCriteria, { Ids: [3] });
   assert.deepEqual(calls[0].params.Page, { Limit: 10, Offset: 5 });
 });
 
@@ -82,18 +81,11 @@ test("delete_callouts passes ids in SelectionCriteria", async () => {
   assert.deepEqual(calls[0].params, { SelectionCriteria: { Ids: [11] } });
 });
 
-test("get_vcards requires a selection and otherwise makes no call", async () => {
+test("get_vcards fetches by required ids and requests Phone", async () => {
   const { calls, tools } = harness();
-  const res = await tools.get_vcards({});
-  assert.equal(res.isError, true);
-  assert.equal(calls.length, 0);
-});
-
-test("get_vcards filters by campaign ids", async () => {
-  const { calls, tools } = harness();
-  await tools.get_vcards({ campaignIds: [7] });
+  await tools.get_vcards({ ids: [42] });
   assert.equal(calls[0].service, "vcards");
-  assert.deepEqual(calls[0].params.SelectionCriteria, { CampaignIds: [7] });
+  assert.deepEqual(calls[0].params.SelectionCriteria, { Ids: [42] });
   assert.ok(calls[0].params.FieldNames.includes("Phone"));
 });
 

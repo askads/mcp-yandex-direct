@@ -35,9 +35,10 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
     "get_ad_videos",
     {
       title: "Get ad videos",
-      description: "Lists videos in the ad video library. Uploads go via raw_request (advideos/add).",
+      description:
+        "Reads videos from the ad video library by id (the API requires ids). Uploads go via raw_request (advideos/add).",
       inputSchema: {
-        ids: z.array(z.number().int()).optional().describe("Filter by video ids."),
+        ids: z.array(z.number().int()).min(1).describe("Video ids (required by the API)."),
         limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
@@ -45,7 +46,7 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
     async ({ ids, limit, offset }) => {
       try {
         const params: Record<string, unknown> = {
-          SelectionCriteria: ids?.length ? { Ids: ids } : {},
+          SelectionCriteria: { Ids: ids },
           FieldNames: ["Id", "Name", "Status"],
         };
         const page = buildPage(limit, offset);

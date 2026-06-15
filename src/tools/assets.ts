@@ -9,9 +9,9 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
     {
       title: "Get sitelink sets",
       description:
-        "Lists sitelink sets (быстрые ссылки) from the library. Attach a set to an ad via the ad's SitelinkSetId.",
+        "Reads sitelink sets (быстрые ссылки) by id. The API requires set ids — get them from ads' SitelinkSetId.",
       inputSchema: {
-        ids: z.array(z.number().int()).optional().describe("Filter by sitelink set ids."),
+        ids: z.array(z.number().int()).min(1).describe("Sitelink set ids (required by the API)."),
         limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
@@ -19,7 +19,7 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
     async ({ ids, limit, offset }) => {
       try {
         const params: Record<string, unknown> = {
-          SelectionCriteria: ids?.length ? { Ids: ids } : {},
+          SelectionCriteria: { Ids: ids },
           FieldNames: ["Id"],
           SitelinkFieldNames: ["Title", "Href", "Description", "TurboPageId"],
         };
@@ -165,24 +165,17 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
     "get_vcards",
     {
       title: "Get vCards",
-      description: "Lists virtual business cards (визитки) by campaign or id.",
+      description: "Reads virtual business cards (визитки) by id. The API requires ids — get them from ads' VCardId.",
       inputSchema: {
-        ids: z.array(z.number().int()).optional().describe("Filter by vCard ids."),
-        campaignIds: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
+        ids: z.array(z.number().int()).min(1).describe("vCard ids (required by the API)."),
         limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
     },
-    async ({ ids, campaignIds, limit, offset }) => {
+    async ({ ids, limit, offset }) => {
       try {
-        if (!ids?.length && !campaignIds?.length) {
-          return fail("Provide at least one of ids or campaignIds.");
-        }
         const params: Record<string, unknown> = {
-          SelectionCriteria: compact({
-            Ids: ids?.length ? ids : undefined,
-            CampaignIds: campaignIds?.length ? campaignIds : undefined,
-          }),
+          SelectionCriteria: { Ids: ids },
           FieldNames: [
             "Id",
             "CampaignId",
