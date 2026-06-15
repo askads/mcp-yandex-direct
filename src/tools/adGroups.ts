@@ -70,4 +70,33 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
       }
     },
   );
+
+  server.registerTool(
+    "update_ad_group",
+    {
+      title: "Update ad group",
+      description: "Updates an ad group's name and/or target regions (adgroups/update).",
+      inputSchema: {
+        id: z.number().int().describe("Ad group id to update."),
+        name: z.string().min(1).optional().describe("New ad group name."),
+        regionIds: z
+          .array(z.number().int())
+          .min(1)
+          .optional()
+          .describe("New target geo region ids."),
+      },
+    },
+    async ({ id, name, regionIds }) => {
+      try {
+        const adGroup = compact({ Id: id, Name: name, RegionIds: regionIds });
+        if (Object.keys(adGroup).length === 1) {
+          return fail("Provide at least one field to update.");
+        }
+        const result = await client.call("adgroups", "update", { AdGroups: [adGroup] });
+        return okOrPartial(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 }

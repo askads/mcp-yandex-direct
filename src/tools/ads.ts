@@ -106,4 +106,32 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
       }
     },
   );
+
+  server.registerTool(
+    "update_text_ad",
+    {
+      title: "Update text ad",
+      description:
+        "Updates a text ad's title, text or landing page (ads/update). Editing an active ad sends it back to moderation.",
+      inputSchema: {
+        id: z.number().int().describe("Ad id to update."),
+        title: z.string().optional().describe("New Title (Title 1), up to 56 characters."),
+        title2: z.string().optional().describe("New second title (Title 2), up to 30 characters."),
+        text: z.string().optional().describe("New body text, up to 81 characters."),
+        href: z.string().optional().describe("New landing page URL."),
+      },
+    },
+    async ({ id, title, title2, text, href }) => {
+      try {
+        const textAd = compact({ Title: title, Title2: title2, Text: text, Href: href });
+        if (Object.keys(textAd).length === 0) {
+          return fail("Provide at least one field to update.");
+        }
+        const result = await client.call("ads", "update", { Ads: [{ Id: id, TextAd: textAd }] });
+        return okOrPartial(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 }

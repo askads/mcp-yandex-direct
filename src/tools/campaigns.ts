@@ -153,4 +153,42 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       }
     },
   );
+
+  server.registerTool(
+    "update_campaign",
+    {
+      title: "Update campaign",
+      description: "Updates a campaign's name, end date and/or daily budget (campaigns/update).",
+      inputSchema: {
+        id: z.number().int().describe("Campaign id to update."),
+        name: z.string().min(1).optional().describe("New campaign name."),
+        endDate: z.string().optional().describe("New end date, format YYYY-MM-DD."),
+        dailyBudgetAmount: z
+          .number()
+          .positive()
+          .optional()
+          .describe("Daily budget in account currency units."),
+        dailyBudgetMode: z.enum(["STANDARD", "DISTRIBUTED"]).optional(),
+      },
+    },
+    async ({ id, name, endDate, dailyBudgetAmount, dailyBudgetMode }) => {
+      try {
+        const campaign = compact({
+          Id: id,
+          Name: name,
+          EndDate: endDate,
+          DailyBudget: dailyBudgetAmount
+            ? { Amount: toMicros(dailyBudgetAmount), Mode: dailyBudgetMode ?? "STANDARD" }
+            : undefined,
+        });
+        if (Object.keys(campaign).length === 1) {
+          return fail("Provide at least one field to update.");
+        }
+        const result = await client.call("campaigns", "update", { Campaigns: [campaign] });
+        return okOrPartial(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 }

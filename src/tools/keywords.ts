@@ -104,4 +104,52 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
       }
     },
   );
+
+  server.registerTool(
+    "set_keyword_bids",
+    {
+      title: "Set keyword bids",
+      description:
+        "Sets manual search/network bids on keywords, or on all keywords in given ad groups or campaigns (keywordbids/set). Bids are in account currency units.",
+      inputSchema: {
+        bids: z
+          .array(
+            z.object({
+              keywordId: z.number().int().optional().describe("Target a single keyword."),
+              adGroupId: z.number().int().optional().describe("Target all keywords in an ad group."),
+              campaignId: z.number().int().optional().describe("Target all keywords in a campaign."),
+              bid: z.number().positive().optional().describe("Search bid in currency units."),
+              contextBid: z.number().positive().optional().describe("Network bid in currency units."),
+            }),
+          )
+          .min(1)
+          .describe("Each item needs one target id and at least one of bid/contextBid."),
+      },
+    },
+    async ({ bids }) => {
+      try {
+        for (const b of bids) {
+          if (b.keywordId === undefined && b.adGroupId === undefined && b.campaignId === undefined) {
+            return fail("Each bid item requires keywordId, adGroupId or campaignId.");
+          }
+          if (b.bid === undefined && b.contextBid === undefined) {
+            return fail("Each bid item requires bid and/or contextBid.");
+          }
+        }
+        const KeywordBids = bids.map((b) =>
+          compact({
+            KeywordId: b.keywordId,
+            AdGroupId: b.adGroupId,
+            CampaignId: b.campaignId,
+            Bid: b.bid !== undefined ? toMicros(b.bid) : undefined,
+            ContextBid: b.contextBid !== undefined ? toMicros(b.contextBid) : undefined,
+          }),
+        );
+        const result = await client.call("keywordbids", "set", { KeywordBids });
+        return okOrPartial(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 }
