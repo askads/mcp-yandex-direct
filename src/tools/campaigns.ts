@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { compact, fail, ok, toMicros } from "./util.js";
+import { compact, fail, ok, okOrPartial, toMicros } from "./util.js";
 
 const CAMPAIGN_TYPES = [
   "TEXT_CAMPAIGN",
@@ -104,7 +104,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           },
         });
         const result = await client.call("campaigns", "add", { Campaigns: [campaign] });
-        return ok(result);
+        return okOrPartial(result);
       } catch (e) {
         return fail(e);
       }
@@ -127,7 +127,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
         const result = await client.call("campaigns", action, {
           SelectionCriteria: { Ids: ids },
         });
-        return ok(result);
+        return okOrPartial(result);
       } catch (e) {
         return fail(e);
       }

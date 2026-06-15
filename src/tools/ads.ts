@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { compact, fail, ok } from "./util.js";
+import { compact, fail, ok, okOrPartial } from "./util.js";
 
 const AD_STATES = ["ON", "OFF", "SUSPENDED", "OFF_BY_MONITORING", "ARCHIVED"] as const;
 const AD_STATUSES = ["ACCEPTED", "DRAFT", "MODERATION", "PREACCEPTED", "REJECTED"] as const;
@@ -71,7 +71,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
         });
         const ad = { AdGroupId: adGroupId, TextAd: textAd };
         const result = await client.call("ads", "add", { Ads: [ad] });
-        return ok(result);
+        return okOrPartial(result);
       } catch (e) {
         return fail(e);
       }
@@ -92,7 +92,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
     async ({ action, ids }) => {
       try {
         const result = await client.call("ads", action, { SelectionCriteria: { Ids: ids } });
-        return ok(result);
+        return okOrPartial(result);
       } catch (e) {
         return fail(e);
       }

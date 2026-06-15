@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { compact, fail, ok } from "./util.js";
+import { compact, fail, ok, okOrPartial } from "./util.js";
 
 const DEFAULT_FIELDS = ["Id", "Name", "CampaignId", "RegionIds", "Status", "Type"];
 
@@ -56,7 +56,7 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
       try {
         const adGroup = { Name: name, CampaignId: campaignId, RegionIds: regionIds };
         const result = await client.call("adgroups", "add", { AdGroups: [adGroup] });
-        return ok(result);
+        return okOrPartial(result);
       } catch (e) {
         return fail(e);
       }

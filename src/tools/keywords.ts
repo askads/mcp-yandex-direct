@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { compact, fail, ok, toMicros } from "./util.js";
+import { compact, fail, ok, okOrPartial, toMicros } from "./util.js";
 
 const DEFAULT_FIELDS = ["Id", "Keyword", "AdGroupId", "CampaignId", "Bid", "ContextBid", "State", "Status"];
 
@@ -69,7 +69,7 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
           }),
         );
         const result = await client.call("keywords", "add", { Keywords: payload });
-        return ok(result);
+        return okOrPartial(result);
       } catch (e) {
         return fail(e);
       }
@@ -89,7 +89,7 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
     async ({ action, ids }) => {
       try {
         const result = await client.call("keywords", action, { SelectionCriteria: { Ids: ids } });
-        return ok(result);
+        return okOrPartial(result);
       } catch (e) {
         return fail(e);
       }
