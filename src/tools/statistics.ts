@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
 import { fail, ok } from "./util.js";
 
-const REPORT_TYPES = [
+export const REPORT_TYPES = [
   "ACCOUNT_PERFORMANCE_REPORT",
   "CAMPAIGN_PERFORMANCE_REPORT",
   "ADGROUP_PERFORMANCE_REPORT",
@@ -11,6 +11,8 @@ const REPORT_TYPES = [
   "CRITERIA_PERFORMANCE_REPORT",
   "SEARCH_QUERY_PERFORMANCE_REPORT",
 ] as const;
+
+type ReportType = (typeof REPORT_TYPES)[number];
 
 const DATE_RANGES = [
   "TODAY",
@@ -23,7 +25,29 @@ const DATE_RANGES = [
   "CUSTOM_DATE",
 ] as const;
 
-const DEFAULT_FIELDS = ["Date", "CampaignName", "Impressions", "Clicks", "Cost", "Ctr", "AvgCpc"];
+const METRICS = ["Impressions", "Clicks", "Cost", "Ctr", "AvgCpc"];
+
+/**
+ * Default columns per report type. Each report type allows a different set of
+ * dimension fields — e.g. ACCOUNT_PERFORMANCE_REPORT rejects CampaignName — so
+ * a single shared default cannot work. All sets below are verified against the
+ * live Reports service.
+ */
+export const DEFAULT_FIELDS_BY_TYPE: Record<ReportType, string[]> = {
+  ACCOUNT_PERFORMANCE_REPORT: ["Date", ...METRICS],
+  CAMPAIGN_PERFORMANCE_REPORT: ["Date", "CampaignId", "CampaignName", ...METRICS],
+  ADGROUP_PERFORMANCE_REPORT: ["Date", "CampaignName", "AdGroupId", "AdGroupName", ...METRICS],
+  AD_PERFORMANCE_REPORT: ["Date", "CampaignName", "AdGroupName", "AdId", ...METRICS],
+  CRITERIA_PERFORMANCE_REPORT: [
+    "Date",
+    "CampaignName",
+    "AdGroupName",
+    "CriterionId",
+    "Criterion",
+    ...METRICS,
+  ],
+  SEARCH_QUERY_PERFORMANCE_REPORT: ["Date", "CampaignName", "Query", ...METRICS],
+};
 
 export function registerStatisticsTools(server: McpServer, client: YandexDirectClient): void {
   server.registerTool(
@@ -66,7 +90,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
 
         const params = {
           SelectionCriteria: selection,
-          FieldNames: fieldNames?.length ? fieldNames : DEFAULT_FIELDS,
+          FieldNames: fieldNames?.length ? fieldNames : DEFAULT_FIELDS_BY_TYPE[type],
           ReportName: `mcp-${type}-${Date.now()}`,
           ReportType: type,
           DateRangeType: range,
