@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "yandex-direct": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "YANDEX_DIRECT_TOKEN": "your-oauth-token",
+        "YANDEX_DIRECT_LANG": "ru",
+        "YANDEX_DIRECT_SANDBOX": "true"
+      }
+    }
+  }
+}
