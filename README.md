@@ -1,5 +1,9 @@
 # Yandex Direct MCP
 
+[![npm](https://img.shields.io/npm/v/@gistrec/mcp-yandex-direct)](https://www.npmjs.com/package/@gistrec/mcp-yandex-direct)
+[![CI](https://github.com/gistrec/mcp-yandex-direct/actions/workflows/ci.yml/badge.svg)](https://github.com/gistrec/mcp-yandex-direct/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 MCP-сервер для **Yandex Direct API v5**. Управляйте контекстной рекламой прямо из Claude (и других MCP-клиентов): кампании, группы, объявления, ключевые фразы, ставки, корректировки, расширения и статистика — на естественном языке.
 
 Покрыт весь API v5: частые операции — через удобные инструменты, всё остальное — через универсальный `raw_request`.

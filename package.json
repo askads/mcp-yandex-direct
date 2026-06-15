@@ -1,6 +1,6 @@
 {
   "name": "@gistrec/mcp-yandex-direct",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "MCP server for the Yandex Direct API v5 — manage PPC campaigns, ad groups, ads, keywords and pull statistics from AI agents.",
   "type": "module",
   "bin": {
