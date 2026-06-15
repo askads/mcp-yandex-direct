@@ -81,3 +81,46 @@ test("delete_callouts passes ids in SelectionCriteria", async () => {
   await tools.delete_callouts({ ids: [11] });
   assert.deepEqual(calls[0].params, { SelectionCriteria: { Ids: [11] } });
 });
+
+test("get_vcards requires a selection and otherwise makes no call", async () => {
+  const { calls, tools } = harness();
+  const res = await tools.get_vcards({});
+  assert.equal(res.isError, true);
+  assert.equal(calls.length, 0);
+});
+
+test("get_vcards filters by campaign ids", async () => {
+  const { calls, tools } = harness();
+  await tools.get_vcards({ campaignIds: [7] });
+  assert.equal(calls[0].service, "vcards");
+  assert.deepEqual(calls[0].params.SelectionCriteria, { CampaignIds: [7] });
+  assert.ok(calls[0].params.FieldNames.includes("Phone"));
+});
+
+test("create_vcard builds the required fields and nested Phone", async () => {
+  const { calls, tools } = harness();
+  const res = await tools.create_vcard({
+    campaignId: 7,
+    country: "Россия",
+    city: "Москва",
+    companyName: "Acme",
+    workTime: "1#5#9#00#18#00",
+    phone: { countryCode: "+7", cityCode: "495", phoneNumber: "1234567" },
+  });
+  assert.equal(res.isError, undefined);
+  assert.equal(calls[0].method, "add");
+  assert.deepEqual(calls[0].params.VCards[0], {
+    CampaignId: 7,
+    Country: "Россия",
+    City: "Москва",
+    CompanyName: "Acme",
+    WorkTime: "1#5#9#00#18#00",
+    Phone: { CountryCode: "+7", CityCode: "495", PhoneNumber: "1234567" },
+  });
+});
+
+test("delete_vcards passes ids in SelectionCriteria", async () => {
+  const { calls, tools } = harness();
+  await tools.delete_vcards({ ids: [42] });
+  assert.deepEqual(calls[0].params, { SelectionCriteria: { Ids: [42] } });
+});

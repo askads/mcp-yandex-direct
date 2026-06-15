@@ -160,4 +160,139 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
       }
     },
   );
+
+  server.registerTool(
+    "get_vcards",
+    {
+      title: "Get vCards",
+      description: "Lists virtual business cards (визитки) by campaign or id.",
+      inputSchema: {
+        ids: z.array(z.number().int()).optional().describe("Filter by vCard ids."),
+        campaignIds: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
+        limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
+        offset: z.number().int().min(0).optional().describe("Pagination offset."),
+      },
+    },
+    async ({ ids, campaignIds, limit, offset }) => {
+      try {
+        if (!ids?.length && !campaignIds?.length) {
+          return fail("Provide at least one of ids or campaignIds.");
+        }
+        const params: Record<string, unknown> = {
+          SelectionCriteria: compact({
+            Ids: ids?.length ? ids : undefined,
+            CampaignIds: campaignIds?.length ? campaignIds : undefined,
+          }),
+          FieldNames: [
+            "Id",
+            "CampaignId",
+            "Country",
+            "City",
+            "CompanyName",
+            "WorkTime",
+            "Phone",
+            "Street",
+            "House",
+            "Building",
+            "Apartment",
+            "ContactPerson",
+            "ContactEmail",
+            "ExtraMessage",
+            "OGRN",
+            "MetroStationId",
+            "PointOnMap",
+          ],
+        };
+        const page = buildPage(limit, offset);
+        if (page) params.Page = page;
+        const result = await client.call("vcards", "get", params);
+        return ok(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "create_vcard",
+    {
+      title: "Create vCard",
+      description:
+        "Creates a virtual business card in a campaign. vCards are immutable — delete and recreate to change.",
+      inputSchema: {
+        campaignId: z.number().int().describe("Campaign the vCard belongs to."),
+        country: z.string().min(1).describe("Country, e.g. Россия."),
+        city: z.string().min(1).describe("City, e.g. Москва."),
+        companyName: z.string().min(1).describe("Company name."),
+        workTime: z
+          .string()
+          .min(1)
+          .describe('Work time in API format, e.g. "1#5#9#00#18#00" = Mon–Fri 09:00–18:00.'),
+        phone: z
+          .object({
+            countryCode: z.string().min(1).describe('Country code, e.g. "+7".'),
+            cityCode: z.string().min(1).describe('City/operator code, e.g. "495".'),
+            phoneNumber: z.string().min(1).describe("Local number."),
+            extension: z.string().optional().describe("Extension, if any."),
+          })
+          .describe("Contact phone."),
+        street: z.string().optional(),
+        house: z.string().optional(),
+        building: z.string().optional(),
+        apartment: z.string().optional(),
+        contactPerson: z.string().optional(),
+        contactEmail: z.string().optional(),
+        extraMessage: z.string().optional().describe("Additional info shown on the card."),
+        ogrn: z.string().optional().describe("OGRN registration number."),
+      },
+    },
+    async (a) => {
+      try {
+        const vcard = compact({
+          CampaignId: a.campaignId,
+          Country: a.country,
+          City: a.city,
+          CompanyName: a.companyName,
+          WorkTime: a.workTime,
+          Phone: compact({
+            CountryCode: a.phone.countryCode,
+            CityCode: a.phone.cityCode,
+            PhoneNumber: a.phone.phoneNumber,
+            Extension: a.phone.extension,
+          }),
+          Street: a.street,
+          House: a.house,
+          Building: a.building,
+          Apartment: a.apartment,
+          ContactPerson: a.contactPerson,
+          ContactEmail: a.contactEmail,
+          ExtraMessage: a.extraMessage,
+          OGRN: a.ogrn,
+        });
+        const result = await client.call("vcards", "add", { VCards: [vcard] });
+        return okOrPartial(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "delete_vcards",
+    {
+      title: "Delete vCards",
+      description: "Deletes vCards by id (vcards/delete).",
+      inputSchema: {
+        ids: z.array(z.number().int()).min(1).describe("vCard ids to delete."),
+      },
+    },
+    async ({ ids }) => {
+      try {
+        const result = await client.call("vcards", "delete", { SelectionCriteria: { Ids: ids } });
+        return okOrPartial(result);
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
 }
