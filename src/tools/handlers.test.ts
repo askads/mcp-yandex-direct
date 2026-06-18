@@ -101,6 +101,27 @@ test("explicit campaign filter with 0 rows fails loud (L3)", async () => {
   assert.match(res.content[0].text, /0 rows/);
 });
 
+test("SEARCH_QUERY returns a computed aggregate (L2), not raw rows", async () => {
+  // Rows match DEFAULT SEARCH_QUERY fields: CampaignName, Query, Impr, Clicks, Cost, Ctr, AvgCpc.
+  const tsv = ["EPK\tаудио в текст\t100\t20\t160.00\t20.0\t8.00", "EPK\tмусор\t40\t0\t0\t0\t0"].join(
+    "\n",
+  );
+  const { tools } = harness(registerStatisticsTools, { reportResult: tsv });
+  const res = await tools.get_statistics({ reportType: "SEARCH_QUERY_PERFORMANCE_REPORT" });
+  const out = JSON.parse(res.content[0].text);
+  assert.equal(out.aggregated, true);
+  assert.equal(out.rowsTotal, 2);
+  assert.equal(out.totals.Cost, 160);
+  assert.equal(out.counts.zeroClick, 1);
+  assert.equal(out.hasConversions, false); // Conversions not in default fields
+});
+
+test("non-heavy report (ACCOUNT) still returns raw TSV", async () => {
+  const { tools } = harness(registerStatisticsTools, { reportResult: "raw\ttsv" });
+  const res = await tools.get_statistics({ reportType: "ACCOUNT_PERFORMANCE_REPORT" });
+  assert.equal(res.content[0].text, "raw\ttsv");
+});
+
 test("create_text_campaign applies the default strategy and converts the budget", async () => {
   const { calls, tools } = harness(registerCampaignTools, { callResult: { AddResults: [{ Id: 1 }] } });
   await tools.create_text_campaign({ name: "C", startDate: "2026-01-01", dailyBudgetAmount: 500 });
