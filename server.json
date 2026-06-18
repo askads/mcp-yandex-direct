@@ -1,0 +1,48 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.gistrec/mcp-yandex-direct",
+  "title": "Yandex Direct",
+  "description": "MCP server for the Yandex Direct API v5 — manage PPC campaigns, ad groups, ads, keywords and pull statistics from AI agents.",
+  "websiteUrl": "https://github.com/gistrec/mcp-yandex-direct#readme",
+  "repository": {
+    "url": "https://github.com/gistrec/mcp-yandex-direct",
+    "source": "github"
+  },
+  "version": "1.0.4",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mcp-yandex-direct",
+      "version": "1.0.4",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "YANDEX_DIRECT_TOKEN",
+          "description": "Yandex Direct OAuth token. Grants full account access (including spending budget) — treat it as a secret.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "YANDEX_DIRECT_LOGIN",
+          "description": "Client login to target a specific account on agency tokens.",
+          "isRequired": false
+        },
+        {
+          "name": "YANDEX_DIRECT_SANDBOX",
+          "description": "Set to true to call the Yandex Direct sandbox API instead of production.",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "YANDEX_DIRECT_LANG",
+          "description": "Language for API responses and error messages (ru, en, ...).",
+          "isRequired": false,
+          "default": "ru"
+        }
+      ]
+    }
+  ]
+}
