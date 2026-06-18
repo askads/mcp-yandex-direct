@@ -9,8 +9,16 @@ interface ObjectResult {
   Errors?: { Message?: string }[];
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+function startDate(): string {
+  // StartDate is required and must be >= the account's current date (in the account's
+  // own timezone). Computing "today" in UTC underflows for accounts ahead of UTC during
+  // the 21:00-24:00 UTC window (e.g. MSK has already rolled to the next day) → the API
+  // rejects it as a past date ("Поле задано неверно"). Tomorrow (UTC) is >= today in any
+  // timezone (-12..+14), so it's valid for every account without assuming a timezone.
+  // The campaign is deleted right after, so the actual start date is irrelevant.
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function firstError(result?: ObjectResult): string {
@@ -43,7 +51,7 @@ async function main(): Promise<void> {
     Campaigns: [
       {
         Name: name,
-        StartDate: today(),
+        StartDate: startDate(),
         TextCampaign: {
           BiddingStrategy: {
             Search: { BiddingStrategyType: "HIGHEST_POSITION" },
