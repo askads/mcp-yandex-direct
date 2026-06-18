@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.gistrec/mcp-yandex-direct",
   "title": "Yandex Direct",
-  "description": "MCP server for the Yandex Direct API v5 — manage PPC campaigns, ad groups, ads, keywords and pull statistics from AI agents.",
+  "description": "MCP server for Yandex Direct API v5: manage PPC campaigns, ads, keywords, and statistics.",
   "websiteUrl": "https://github.com/gistrec/mcp-yandex-direct#readme",
   "repository": {
     "url": "https://github.com/gistrec/mcp-yandex-direct",
@@ -21,7 +21,7 @@
       "environmentVariables": [
         {
           "name": "YANDEX_DIRECT_TOKEN",
-          "description": "Yandex Direct OAuth token. Grants full account access (including spending budget) — treat it as a secret.",
+          "description": "Yandex Direct OAuth token — full account access (can spend budget). Treat it as a secret.",
           "isRequired": true,
           "isSecret": true
         },
