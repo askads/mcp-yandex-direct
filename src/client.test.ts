@@ -76,6 +76,25 @@ test("call() throws YandexDirectError on API error payload", async () => {
   }
 });
 
+test("call() surfaces the raw response when there is neither result nor error", async () => {
+  // Regression: accountmanagement returned a body with no `result`/`error`; we used to
+  // return `undefined` (→ JSON.stringify(undefined) → invalid MCP content). Now we throw
+  // a readable error carrying the raw body so the caller sees what the API actually said.
+  const mock = mockFetch(() => new Response(JSON.stringify({ foo: "bar" }), { status: 400 }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false });
+    await assert.rejects(
+      () => client.call("accountmanagement", "get", {}),
+      (err: unknown) =>
+        err instanceof Error &&
+        /no "result" field/.test(err.message) &&
+        /foo/.test(err.message),
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
 test("parseUnits parses the spent/rest/limit header and rejects junk", () => {
   assert.deepEqual(parseUnits("10/4990/5000"), { spent: 10, rest: 4990, limit: 5000 });
   assert.equal(parseUnits(null), undefined);

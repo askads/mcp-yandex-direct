@@ -7,6 +7,7 @@ import {
   compact,
   isoDate,
   normalizeMoney,
+  ok,
   okOrPartial,
   toMicros,
 } from "./util.js";
@@ -14,6 +15,14 @@ import {
 function textOf(result: CallToolResult): string {
   return result.content.map((c) => ("text" in c ? c.text : "")).join("");
 }
+
+test("ok() emits valid text content even when data is undefined", () => {
+  // Regression: JSON.stringify(undefined) is undefined, which produced
+  // {type:"text", text: undefined} → rejected by the MCP SDK as invalid content.
+  const result = ok(undefined);
+  assert.equal(result.content[0].type, "text");
+  assert.equal(textOf(result), "null");
+});
 
 test("okOrPartial reports success when every object has an Id", () => {
   const result = okOrPartial({ AddResults: [{ Id: 1 }, { Id: 2 }] });

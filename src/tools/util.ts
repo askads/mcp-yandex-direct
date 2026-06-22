@@ -9,7 +9,9 @@ export const isoDate = z
 
 export function ok(data: unknown): CallToolResult {
   // Compact JSON (no indent): the consumer is an LLM, pretty-printing only burns tokens.
-  const text = typeof data === "string" ? data : JSON.stringify(data);
+  // `JSON.stringify(undefined)` is `undefined` (not a string) — guard it so we never emit
+  // `{type:"text", text: undefined}`, which the MCP SDK rejects as invalid content.
+  const text = typeof data === "string" ? data : JSON.stringify(data) ?? "null";
   return { content: [{ type: "text", text }] };
 }
 
@@ -55,7 +57,7 @@ function collectObjectErrors(result: unknown): { failed: number; total: number; 
  */
 export function okOrPartial(result: unknown): CallToolResult {
   const { failed, total, messages } = collectObjectErrors(result);
-  const body = typeof result === "string" ? result : JSON.stringify(result);
+  const body = typeof result === "string" ? result : JSON.stringify(result) ?? "null";
   if (failed === 0) return { content: [{ type: "text", text: body }] };
   const header =
     failed === total

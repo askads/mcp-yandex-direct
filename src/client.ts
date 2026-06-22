@@ -122,6 +122,14 @@ export class YandexDirectClient {
         }
         throw new YandexDirectError(data.error);
       }
+      if (data.result === undefined) {
+        // Neither `result` nor `error`: surface the raw response so the caller sees what the
+        // API actually returned, instead of returning `undefined` (which `JSON.stringify`s to
+        // `undefined` downstream → invalid MCP content / a silent, cryptic failure).
+        throw new Error(
+          `Unexpected response from "${service}" (HTTP ${res.status}) — no "result" field: ${text.slice(0, 500)}`,
+        );
+      }
       return data.result as T;
     }
   }
