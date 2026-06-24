@@ -5,12 +5,19 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 проект придерживается [семантического версионирования](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.1.0] — 2026-06-24
 
 ### Добавлено
 - MCP-аннотации (`readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`)
   на всех тулах — клиент MCP может авто-подтверждать чтение и предупреждать перед записью.
 - Тул `delete_ad_groups` — удаление групп объявлений по id (`adgroups/delete`).
+
+### Исправлено
+- Сервер сообщает MCP-клиентам реальную версию из `package.json` (была захардкожена `1.0.0`).
+
+### Изменено
+- Публикуемый пакет уменьшен: чистка `dist/` перед сборкой, без source maps и `.d.ts`,
+  dev-скрипты (`smoke`/`integration`) исключены из сборки.
 
 ## [1.0.7] — 2026-06-23
 
@@ -65,7 +72,7 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
-[Unreleased]: https://github.com/gistrec/mcp-yandex-direct/compare/v1.0.7...HEAD
+[1.1.0]: https://github.com/gistrec/mcp-yandex-direct/compare/v1.0.7...v1.1.0
 [1.0.7]: https://github.com/gistrec/mcp-yandex-direct/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/gistrec/mcp-yandex-direct/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/gistrec/mcp-yandex-direct/compare/v1.0.4...v1.0.5
