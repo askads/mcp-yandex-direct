@@ -2,6 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/mcp-yandex-direct)](https://www.npmjs.com/package/mcp-yandex-direct)
 [![CI](https://github.com/askads/mcp-yandex-direct/actions/workflows/ci.yml/badge.svg)](https://github.com/askads/mcp-yandex-direct/actions/workflows/ci.yml)
+[![Glama](https://glama.ai/mcp/servers/askads/mcp-yandex-direct/badges/score.svg)](https://glama.ai/mcp/servers/askads/mcp-yandex-direct)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 MCP-сервер для **Yandex Direct API v5**: управляйте контекстной рекламой из Claude, Cursor, Codex и других AI-клиентов на естественном языке.
