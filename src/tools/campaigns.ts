@@ -95,8 +95,8 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
         "Creates a TextCampaign (Text & Image ads). Without biddingStrategy it defaults to manual search bids with the network off (Search HIGHEST_POSITION, Network SERVING_OFF); pass a full biddingStrategy {Search, Network} to use an auto-strategy or enable the network.",
       inputSchema: {
         name: z.string().min(1).describe("Campaign name."),
-        startDate: isoDate.describe("Start date, format YYYY-MM-DD."),
-        endDate: isoDate.optional().describe("End date, format YYYY-MM-DD."),
+        startDate: isoDate().describe("Start date, format YYYY-MM-DD."),
+        endDate: isoDate().optional().describe("End date, format YYYY-MM-DD."),
         dailyBudgetAmount: z
           .number()
           .positive()
@@ -166,7 +166,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       inputSchema: {
         id: z.number().int().describe("Campaign id to update."),
         name: z.string().min(1).optional().describe("New campaign name."),
-        endDate: isoDate.optional().describe("New end date, format YYYY-MM-DD."),
+        endDate: isoDate().optional().describe("New end date, format YYYY-MM-DD."),
         dailyBudgetAmount: z
           .number()
           .positive()

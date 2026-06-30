@@ -2,10 +2,16 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { YandexDirectError } from "../types.js";
 
-/** A date in YYYY-MM-DD form, validated before the request reaches the API. */
-export const isoDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Must be a date in YYYY-MM-DD format");
+/**
+ * A date in YYYY-MM-DD form, validated before the request reaches the API.
+ *
+ * A FACTORY (not a shared const): reusing one zod object across fields makes
+ * zod-to-json-schema dedupe them into a `$ref` (e.g. dateTo → #/properties/dateFrom),
+ * which some tool-schema consumers (OpenAI Apps review) don't dereference and flag
+ * as `any`. A fresh object per field keeps each one inlined with its type+pattern.
+ */
+export const isoDate = () =>
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be a date in YYYY-MM-DD format");
 
 export function ok(data: unknown): CallToolResult {
   // Compact JSON (no indent): the consumer is an LLM, pretty-printing only burns tokens.

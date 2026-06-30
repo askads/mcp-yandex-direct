@@ -68,10 +68,11 @@ test("compact drops only undefined values, keeping null/0/empty", () => {
 });
 
 test("isoDate accepts YYYY-MM-DD and rejects other formats", () => {
-  assert.equal(isoDate.safeParse("2026-06-15").success, true);
-  assert.equal(isoDate.safeParse("2026-6-15").success, false);
-  assert.equal(isoDate.safeParse("15.06.2026").success, false);
-  assert.equal(isoDate.safeParse("yesterday").success, false);
+  const d = isoDate(); // factory → fresh schema
+  assert.equal(d.safeParse("2026-06-15").success, true);
+  assert.equal(d.safeParse("2026-6-15").success, false);
+  assert.equal(d.safeParse("15.06.2026").success, false);
+  assert.equal(d.safeParse("yesterday").success, false);
 });
 
 test("buildPage defaults Limit/Offset and skips when nothing is requested", () => {
