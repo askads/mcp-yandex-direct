@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE } from "./util.js";
+import { buildPage, compact, fail, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE } from "./util.js";
 
 export function registerAssetTools(server: McpServer, client: YandexDirectClient): void {
   server.registerTool(
@@ -13,7 +13,7 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
         "Reads sitelink sets (быстрые ссылки) by id. The API requires set ids — get them from ads' SitelinkSetId.",
       inputSchema: {
         ids: z.array(z.number().int()).min(1).describe("Sitelink set ids (required by the API)."),
-        limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
     },
@@ -99,7 +99,7 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
         "Lists callouts (уточнения) from the adextensions library. Attach a callout to an ad via the Ads service.",
       inputSchema: {
         ids: z.array(z.number().int()).optional().describe("Filter by callout ids."),
-        limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
     },
@@ -175,7 +175,7 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
       description: "Reads virtual business cards (визитки) by id. The API requires ids — get them from ads' VCardId.",
       inputSchema: {
         ids: z.array(z.number().int()).min(1).describe("vCard ids (required by the API)."),
-        limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
     },

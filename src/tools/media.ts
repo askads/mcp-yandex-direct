@@ -1,7 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, fail, ok, okOrPartial, READ_ONLY, WRITE_CREATE } from "./util.js";
+import { buildPage, fail, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE } from "./util.js";
+
+/** Yandex accepts ad images up to 10 MB — reject anything larger before encoding. */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+/** Hard cap on how long we wait for a remote image before giving up. */
+const IMAGE_FETCH_TIMEOUT_MS = 30_000;
 
 export function registerMediaTools(server: McpServer, client: YandexDirectClient): void {
   server.registerTool(
@@ -12,7 +17,7 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
       description: "Lists images in the ad image library, keyed by image hash. Upload new images with upload_ad_image.",
       inputSchema: {
         hashes: z.array(z.string()).optional().describe("Filter by image hashes."),
-        limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
     },
@@ -41,7 +46,7 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
         "Reads videos from the ad video library by id (the API requires ids). Uploads go via raw_request (advideos/add).",
       inputSchema: {
         ids: z.array(z.number().int()).min(1).describe("Video ids (required by the API)."),
-        limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
     },
@@ -69,7 +74,7 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
       description: "Lists creatives (smart banners, HTML5) from the creative library.",
       inputSchema: {
         ids: z.array(z.number().int()).optional().describe("Filter by creative ids."),
-        limit: z.number().int().min(1).max(10000).optional().describe("Max objects per page."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
         offset: z.number().int().min(0).optional().describe("Pagination offset."),
       },
     },
@@ -132,11 +137,44 @@ function stripDataUrlPrefix(data: string): string {
   return data.replace(/^data:[^;,]*;base64,/, "");
 }
 
-/** Fetches an image URL and returns its bytes as base64 for adimages/add. */
+/**
+ * Fetches an image URL and returns its bytes as base64 for adimages/add. Guards a
+ * user-supplied URL: only http(s) is allowed (no file:/data:/ftp:), a timeout bounds a
+ * hung/drip-feed download, and the size is checked against Yandex's 10 MB limit — first
+ * against Content-Length (fail fast, before downloading) and again against the actual
+ * bytes (a lying/absent header can't slip an oversized image through).
+ */
 async function fetchImageBase64(url: string): Promise<string> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch image from "${url}": HTTP ${res.status}`);
+  const parsed = new URL(url);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Image URL must be http(s), got "${parsed.protocol}"`);
   }
-  return Buffer.from(await res.arrayBuffer()).toString("base64");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch image from "${url}": HTTP ${res.status}`);
+    }
+    const declared = Number(res.headers.get("Content-Length"));
+    if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+      throw new Error(
+        `Image at "${url}" is ${declared} bytes, over the ${MAX_IMAGE_BYTES}-byte (10 MB) limit.`,
+      );
+    }
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      throw new Error(
+        `Image at "${url}" is ${bytes.length} bytes, over the ${MAX_IMAGE_BYTES}-byte (10 MB) limit.`,
+      );
+    }
+    return bytes.toString("base64");
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`Fetching image from "${url}" timed out after ${IMAGE_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }

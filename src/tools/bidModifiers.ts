@@ -60,6 +60,9 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
           DemographicsAdjustmentFieldNames: ["Gender", "Age", "BidModifier", "Enabled"],
           RetargetingAdjustmentFieldNames: ["RetargetingConditionId", "BidModifier", "Enabled"],
           RegionalAdjustmentFieldNames: ["RegionId", "BidModifier", "Enabled"],
+          // VIDEO_ADJUSTMENT is in the type list and promised in the description; without
+          // this the video adjustment is silently never returned.
+          VideoAdjustmentFieldNames: ["BidModifier"],
         };
         const result = await client.call("bidmodifiers", "get", params);
         return ok(result);

@@ -1,7 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_FIELDS_BY_TYPE, REPORT_TYPES } from "./statistics.js";
+import { DEFAULT_FIELDS_BY_TYPE, registerStatisticsTools, REPORT_TYPES } from "./statistics.js";
 import { aggregateReport } from "./statistics.aggregate.js";
+
+type Args = Record<string, unknown>;
+type Handler = (args: Args) => Promise<{ content: { text: string }[]; isError?: boolean }>;
+
+/** Registers the statistics tool against a fake server + client whose report() is stubbable. */
+function harness(reportImpl?: (params: any) => string) {
+  const calls: any[] = [];
+  const tools: Record<string, Handler> = {};
+  const client = {
+    report: async (params: any) => {
+      calls.push(params);
+      return reportImpl ? reportImpl(params) : "";
+    },
+  };
+  const server = {
+    registerTool: (name: string, _cfg: unknown, handler: Handler) => {
+      tools[name] = handler;
+    },
+  };
+  registerStatisticsTools(server as never, client as never);
+  return { calls, tools };
+}
+
+const CAMPAIGN_HEADER = "CampaignId\tCampaignName\tImpressions\tClicks\tCost\tCtr\tAvgCpc";
 
 const SQ_FIELDS = ["Query", "Impressions", "Clicks", "Cost", "Conversions"];
 // аудио: conv(26) > clicks(20) → anomaly; mp3: clicks>0 & 0 conv → zeroConversion;
@@ -132,4 +156,56 @@ test("aggregate: a real query literally equal to a field name is not mistaken fo
   const a = aggregateReport(tsv, SQ_FIELDS, "SEARCH_QUERY_PERFORMANCE_REPORT");
   assert.equal(a.rowsTotal, 2);
   assert.equal(a.totals.Clicks, 12);
+});
+
+test("aggregate: zeroConversionsOnly without Conversions in fieldNames throws a clear error", () => {
+  const fields = ["Query", "Impressions", "Clicks", "Cost"];
+  assert.throws(
+    () =>
+      aggregateReport("audio\t100\t20\t160.00", fields, "SEARCH_QUERY_PERFORMANCE_REPORT", {
+        zeroConversionsOnly: true,
+      }),
+    /Conversions/,
+  );
+});
+
+// ---- get_statistics handler: date-range and empty-slice guards ----
+
+test("get_statistics rejects a single date bound and makes no report request", async () => {
+  const { calls, tools } = harness();
+  const res = await tools.get_statistics({ dateFrom: "2026-01-01" });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /both dateFrom and dateTo/);
+  assert.equal(calls.length, 0);
+});
+
+test("get_statistics forces CUSTOM_DATE when both dates accompany a predefined range", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tA\t10\t2\t5\t20\t2.5\n`);
+  const res = await tools.get_statistics({
+    dateRangeType: "LAST_7_DAYS",
+    dateFrom: "2026-01-01",
+    dateTo: "2026-01-31",
+  });
+  assert.equal(res.isError, undefined);
+  // The explicit date pair wins over LAST_7_DAYS instead of being silently ignored.
+  assert.equal(calls[0].DateRangeType, "CUSTOM_DATE");
+  assert.equal(calls[0].SelectionCriteria.DateFrom, "2026-01-01");
+  assert.equal(calls[0].SelectionCriteria.DateTo, "2026-01-31");
+});
+
+test("get_statistics fails when a campaign filter yields only the header row (0 data rows)", async () => {
+  // Live Reports always echoes the column header, so tsv.trim() is never empty — the guard
+  // must count DATA rows, not test for an empty string.
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n`);
+  const res = await tools.get_statistics({ campaignIds: [999] });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /0 rows for campaignIds \[999\]/);
+  assert.equal(calls.length, 1); // the report WAS requested; the failure is post-hoc
+});
+
+test("get_statistics returns the raw TSV when a campaign filter has data rows", async () => {
+  const { tools } = harness(() => `${CAMPAIGN_HEADER}\n123\tMy campaign\t100\t20\t50.00\t20\t2.5\n`);
+  const res = await tools.get_statistics({ campaignIds: [123] });
+  assert.equal(res.isError, undefined);
+  assert.match(res.content[0].text, /My campaign/);
 });

@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
 import { fail, isoDate, ok, READ_ONLY } from "./util.js";
-import { aggregateReport, MAX_TOP_N } from "./statistics.aggregate.js";
+import { aggregateReport, countDataRows, MAX_TOP_N } from "./statistics.aggregate.js";
 
 export const REPORT_TYPES = [
   "ACCOUNT_PERFORMANCE_REPORT",
@@ -117,7 +117,17 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
     }) => {
       try {
         const type = reportType ?? "CAMPAIGN_PERFORMANCE_REPORT";
-        const range = dateRangeType ?? (dateFrom && dateTo ? "CUSTOM_DATE" : "LAST_30_DAYS");
+        // A single date bound is ambiguous: silently falling back to LAST_30_DAYS hides the
+        // mistake. Require both dates or neither.
+        if ((dateFrom === undefined) !== (dateTo === undefined)) {
+          return fail(
+            "Provide both dateFrom and dateTo (YYYY-MM-DD), or neither — a single date bound is ambiguous.",
+          );
+        }
+        // An explicit date pair must win over a predefined dateRangeType, otherwise passing
+        // dates alongside e.g. LAST_7_DAYS would silently ignore the dates.
+        let range = dateRangeType ?? (dateFrom && dateTo ? "CUSTOM_DATE" : "LAST_30_DAYS");
+        if (dateFrom && dateTo) range = "CUSTOM_DATE";
 
         // L3: ALL_TIME без фильтра по кампании для построчных «тяжёлых» отчётов тянет
         // весь аккаунт за всё время → взрыв размера. Падаем громко, до запроса.
@@ -155,17 +165,10 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         };
 
         const tsv = await client.report(params);
-        // L3 fail-loud: явный фильтр по кампании, но 0 строк — почти всегда неверный
-        // campaignId или период. Пустой ответ провоцирует модель «снять фильтр и
-        // расширить охват»; явная ошибка заставляет починить фильтр.
-        if (campaignIds?.length && tsv.trim() === "") {
-          return fail(
-            `Report returned 0 rows for campaignIds [${campaignIds.join(", ")}] over ${range}. Check the campaignId(s) and the date range — do not broaden the filter blindly.`,
-          );
-        }
         // L2: SEARCH_QUERY is high-cardinality → return a computed summary (totals over
         // 100% of rows + top-N + tail), not raw rows. Other types stay raw (bounded by
-        // entity count).
+        // entity count). Handled first: the summary carries its own explicit empty-slice
+        // note, so it must not be pre-empted by the raw-row guard below.
         if (type === "SEARCH_QUERY_PERFORMANCE_REPORT") {
           return ok(
             aggregateReport(tsv, params.FieldNames, type, {
@@ -177,6 +180,16 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
               zeroClicksOnly,
               zeroConversionsOnly,
             }),
+          );
+        }
+        // L3 fail-loud: an explicit campaign filter that returns 0 DATA rows is almost always
+        // a wrong campaignId or period. The live Reports body ALWAYS carries the column-header
+        // row (skipColumnHeader is not sent), so tsv.trim() is never empty — count data rows
+        // (header detection reused from parseRows). An empty result nudges the model to "drop
+        // the filter and broaden"; an explicit error makes it fix the filter instead.
+        if (campaignIds?.length && countDataRows(tsv, params.FieldNames) === 0) {
+          return fail(
+            `Report returned 0 rows for campaignIds [${campaignIds.join(", ")}] over ${range}. Check the campaignId(s) and the date range — do not broaden the filter blindly.`,
           );
         }
         return ok(tsv);

@@ -66,6 +66,41 @@ test("callV4() targets the sandbox v4 base in sandbox mode", async () => {
   }
 });
 
+test("callV4() retries a 5xx for a Get action then returns data", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) return new Response("gateway", { status: 502 });
+    return new Response(JSON.stringify({ data: { Accounts: [] } }), { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false, retryBaseMs: 0 });
+    const result = await client.callV4("AccountManagement", { Action: "Get", SelectionCriteria: {} });
+    assert.deepEqual(result, { Accounts: [] });
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("callV4() does NOT retry a 5xx for a non-Get action (no duplicate write)", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response("gateway", { status: 502 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false, retryBaseMs: 0 });
+    await assert.rejects(
+      () => client.callV4("AccountManagement", { Action: "Update" }),
+      /Live v4 "AccountManagement" failed with HTTP 502/,
+    );
+    assert.equal(calls, 1);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("call() targets sandbox, sends bearer token and parses result", async () => {
   const mock = mockFetch(
     () => new Response(JSON.stringify({ result: { Campaigns: [] } }), { status: 200 }),
@@ -214,7 +249,10 @@ test("getAll stops at maxPages and flags the truncation loudly", async () => {
     // Hitting the cap is explicit, not a bare LimitedBy that the model may ignore.
     assert.equal(result._truncated, true);
     assert.match(result._truncatedNote ?? "", /more objects remain/);
-    assert.notEqual(result.LimitedBy, undefined);
+    // LimitedBy is the cursor AFTER the last merged page (page 2 → offset 2), not the stale
+    // page-1 value copied from the first page's scalar (which was 1).
+    assert.equal(result.LimitedBy, 2);
+    assert.match(result._truncatedNote ?? "", /LimitedBy=2/);
   } finally {
     mock.restore();
   }
@@ -327,7 +365,14 @@ test("call() aborts and reports a timeout when the request hangs", async () => {
       );
     })) as typeof fetch;
   try {
-    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, timeoutMs: 10 });
+    // maxRetries:0 so the timeout surfaces immediately (a hung read is otherwise retried).
+    const client = new YandexDirectClient({
+      token: "T",
+      lang: "ru",
+      sandbox: true,
+      timeoutMs: 10,
+      maxRetries: 0,
+    });
     await assert.rejects(() => client.call("campaigns", "get", {}), /timed out after 10ms/);
   } finally {
     globalThis.fetch = original;
@@ -370,4 +415,108 @@ test("report() gives up on a persistent 5xx after maxPolls", async () => {
   } finally {
     mock.restore();
   }
+});
+
+test("call() rejects a service path that resolves to a foreign origin and never fetches", async () => {
+  // SSRF guard: an absolute/scheme-bearing service, or a backslash/protocol-relative one,
+  // resolves to a foreign origin and would rebase the token-bearing request onto another
+  // host — reject before fetching. (The backslash form slips past a naive `startsWith("/")`
+  // string test, which is why the guard compares the resolved origin.)
+  const mock = mockFetch(() => new Response(JSON.stringify({ result: {} }), { status: 200 }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    for (const evil of ["https://evil.example/steal", "http://evil.example/x", "\\\\evil.example/x"]) {
+      await assert.rejects(() => client.call(evil, "get", {}), /foreign origin/);
+    }
+    assert.equal(mock.calls.length, 0);
+    // A normal relative service still works.
+    const result = await client.call("campaigns", "get", {});
+    assert.deepEqual(result, {});
+    assert.equal(mock.calls.length, 1);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() does NOT retry an HTTP 5xx for a write method (no duplicate write)", async () => {
+  // A write (add/update/delete/set) may have committed before the gateway error, so a blind
+  // retry could duplicate it. Only reads (get/has/check) are retried on 5xx.
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response("bad gateway", { status: 502 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    await assert.rejects(() => client.call("campaigns", "add", {}), /HTTP 502/);
+    assert.equal(calls, 1); // single attempt, no retry
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() retries a rate-limit code even for a write method (request not processed)", async () => {
+  // 506/52 mean the request was NOT processed (like 429), so retrying a write is safe.
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) {
+      return new Response(
+        JSON.stringify({ error: { error_code: 506, error_string: "Too many requests" } }),
+        { status: 200 },
+      );
+    }
+    return new Response(JSON.stringify({ result: { AddResults: [{ Id: 1 }] } }), { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    const result = await client.call("campaigns", "add", {});
+    assert.deepEqual(result, { AddResults: [{ Id: 1 }] });
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() retries a network error for a read method, then succeeds", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) throw Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" });
+    return new Response(JSON.stringify({ result: { ok: true } }), { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    const result = await client.call("campaigns", "get", {});
+    assert.deepEqual(result, { ok: true });
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() does NOT retry a network error for a write method", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    throw Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    await assert.rejects(() => client.call("campaigns", "add", {}), /ECONNRESET/);
+    assert.equal(calls, 1);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("YandexDirectError appends request_id to the message when present", () => {
+  const err = new YandexDirectError({
+    error_code: 54,
+    error_string: "No units",
+    request_id: "abc123",
+  });
+  assert.match(err.message, /\[54\] No units/);
+  assert.match(err.message, /request_id: abc123/);
+  assert.equal(err.requestId, "abc123");
 });

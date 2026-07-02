@@ -118,6 +118,16 @@ export function parseRows(tsv: string, fieldNames: string[]): ParsedRow[] {
   return rows;
 }
 
+/**
+ * Counts DATA rows in a raw Reports TSV, reusing parseRows' header detection so the
+ * always-present column-header row is not miscounted. Used by the raw-TSV report types
+ * to detect "0 rows for the requested campaign filter" (tsv.trim() never empties on a
+ * live report, which always echoes the header row).
+ */
+export function countDataRows(tsv: string, fieldNames: string[]): number {
+  return parseRows(tsv, fieldNames).length;
+}
+
 function primaryDimension(fieldNames: string[]): string {
   for (const f of ["Query", "Criterion", "AdGroupName", "CampaignName"]) {
     if (fieldNames.includes(f)) return f;
@@ -142,6 +152,13 @@ export function aggregateReport(
 ): ReportAggregate {
   const rows = parseRows(tsv, fieldNames);
   const hasConversions = fieldNames.includes("Conversions");
+  // zeroConversionsOnly is meaningless without conversion data — fail loudly instead of
+  // silently ignoring the filter (which would look like "no zero-conversion rows").
+  if (opts.zeroConversionsOnly && !hasConversions) {
+    throw new Error(
+      'zeroConversionsOnly needs conversion data — add "Conversions" to fieldNames.',
+    );
+  }
   const dimKey = primaryDimension(fieldNames);
   const sumKeys = SUMMABLE.filter((k) => fieldNames.includes(k));
 

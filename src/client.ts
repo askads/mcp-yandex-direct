@@ -1,6 +1,6 @@
 import type { ApiError, YandexDirectConfig } from "./types.js";
 import { YandexDirectError } from "./types.js";
-import { DEFAULT_PAGE_LIMIT } from "./tools/util.js";
+import { DEFAULT_PAGE_LIMIT, isReadMethod } from "./tools/util.js";
 
 const PROD_BASE = "https://api.direct.yandex.com/json/v5/";
 const SANDBOX_BASE = "https://api-sandbox.direct.yandex.com/json/v5/";
@@ -55,12 +55,23 @@ export class YandexDirectClient {
     return Math.min(this.retryBaseMs * 2 ** attempt, 30_000);
   }
 
-  /** fetch with an AbortController timeout so a hung connection can't hang the tool forever. */
-  private async fetchWithTimeout(url: string, init: RequestInit, service: string): Promise<Response> {
+  /**
+   * fetch with an AbortController timeout so a hung connection can't hang the tool
+   * forever. Reads the body INSIDE the guarded zone (the timer is cleared only after
+   * `res.text()` resolves), so a slow/drip-feed body is covered by the same timeout
+   * as the headers — not left to hang on the default body timeout.
+   */
+  private async fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    service: string,
+  ): Promise<{ res: Response; text: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      const text = await res.text();
+      return { res, text };
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         throw new Error(`Request to "${service}" timed out after ${this.timeoutMs}ms`);
@@ -87,25 +98,52 @@ export class YandexDirectClient {
     method: string,
     params: Record<string, unknown>,
   ): Promise<T> {
-    for (let attempt = 0; ; attempt++) {
-      const res = await this.fetchWithTimeout(
-        this.base + service,
-        {
-          method: "POST",
-          headers: this.headers(),
-          body: JSON.stringify({ method, params }),
-        },
-        service,
+    // SSRF guard (matches the sibling MCP servers): resolve `service` against the API
+    // base and reject anything that lands on a FOREIGN origin — an absolute URL
+    // ("https://evil/x", "http://evil/x") or a protocol-relative/backslash form
+    // ("\\evil/x") would otherwise rebase the token-bearing request onto another host.
+    // Comparing the resolved origin (not a brittle string test) stays correct regardless
+    // of how the URL is built below.
+    const target = new URL(service.replace(/^\//, ""), this.base);
+    if (target.origin !== new URL(this.base).origin) {
+      throw new Error(
+        `service must be a relative API path (resolved to foreign origin ${target.origin})`,
       );
+    }
+    // Only read methods (get/has/check) are safe to auto-retry on a network failure or
+    // 5xx: a write (add/update/delete/set) may have committed before the gateway error,
+    // so a blind retry could duplicate it. Rate-limit codes (429/506/52) mean the request
+    // was NOT processed and are retried for any method (handled below).
+    const idempotent = isReadMethod(method);
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      let text: string;
+      try {
+        ({ res, text } = await this.fetchWithTimeout(
+          target.toString(),
+          {
+            method: "POST",
+            headers: this.headers(),
+            body: JSON.stringify({ method, params }),
+          },
+          service,
+        ));
+      } catch (err) {
+        // Network error or timeout: retry idempotent reads within budget, else rethrow.
+        if (idempotent && attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt));
+          continue;
+        }
+        throw err;
+      }
 
       const units = parseUnits(res.headers.get("Units"));
       if (units) this.latestUnits = units;
 
-      const text = await res.text();
-
-      // Gateway/server errors are transient — back off and retry.
+      // Gateway/server errors are transient — back off and retry, but only for
+      // idempotent reads (a write may already have taken effect on the backend).
       if (res.status >= 500 && res.status < 600) {
-        if (attempt < this.maxRetries) {
+        if (idempotent && attempt < this.maxRetries) {
           await delay(this.backoffMs(attempt, res));
           continue;
         }
@@ -150,36 +188,61 @@ export class YandexDirectClient {
    * (not micros) — callers must NOT run normalizeMoney on it.
    */
   async callV4<T = unknown>(method: string, param: Record<string, unknown>): Promise<T> {
-    const res = await this.fetchWithTimeout(
-      this.v4Base,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify({ method, token: this.config.token, locale: this.config.lang, param }),
-      },
-      method,
-    );
+    // v4 multiplexes read and write behind one method (AccountManagement) via `Action`,
+    // so idempotency keys off Action=Get. Only reads are retried on a transient network
+    // error or 5xx; a write action (Deposit/Update/…) must never be blindly re-sent.
+    const idempotent = String(param.Action ?? "").toLowerCase() === "get";
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      let text: string;
+      try {
+        ({ res, text } = await this.fetchWithTimeout(
+          this.v4Base,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+            body: JSON.stringify({ method, token: this.config.token, locale: this.config.lang, param }),
+          },
+          method,
+        ));
+      } catch (err) {
+        if (idempotent && attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt));
+          continue;
+        }
+        throw err;
+      }
 
-    const text = await res.text();
-    let data: { data?: T; error_code?: number; error_str?: string; error_detail?: string };
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(
-        `Invalid JSON from Live v4 "${method}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
-      );
-    }
+      if (res.status >= 500 && res.status < 600) {
+        if (idempotent && attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt, res));
+          continue;
+        }
+        throw new Error(
+          `Live v4 "${method}" failed with HTTP ${res.status} after ${attempt + 1} attempts: ${text.slice(0, 300)}`,
+        );
+      }
 
-    if (data.error_code !== undefined) {
-      const detail = data.error_detail ? `: ${data.error_detail}` : "";
-      throw new Error(`Live v4 "${method}" error [${data.error_code}] ${data.error_str ?? ""}${detail}`);
+      let data: { data?: T; error_code?: number; error_str?: string; error_detail?: string };
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(
+          `Invalid JSON from Live v4 "${method}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
+        );
+      }
+
+      if (data.error_code !== undefined) {
+        const detail = data.error_detail ? `: ${data.error_detail}` : "";
+        throw new Error(`Live v4 "${method}" error [${data.error_code}] ${data.error_str ?? ""}${detail}`);
+      }
+      if (data.data === undefined) {
+        throw new Error(
+          `Unexpected Live v4 response for "${method}" (HTTP ${res.status}) — no "data" field: ${text.slice(0, 500)}`,
+        );
+      }
+      return data.data as T;
     }
-    if (data.data === undefined) {
-      throw new Error(
-        `Unexpected Live v4 response for "${method}" (HTTP ${res.status}) — no "data" field: ${text.slice(0, 500)}`,
-      );
-    }
-    return data.data as T;
   }
 
   /**
@@ -233,6 +296,11 @@ export class YandexDirectClient {
     // size, not pagination cutoff).
     if (merged && typeof (merged as Record<string, unknown>).LimitedBy === "number") {
       const m = merged as Record<string, unknown>;
+      // The scalar LimitedBy was copied from the FIRST page and is now stale (it points
+      // just past page 1, not past the merged set). Overwrite it with `offset`, the cursor
+      // after the last merged page, so "paginate with offset from LimitedBy" resumes at the
+      // right place instead of re-fetching from the start.
+      m.LimitedBy = offset;
       m._truncated = true;
       m._truncatedNote =
         `Stopped at the ${maxPages}-page cap; more objects remain (LimitedBy=${m.LimitedBy}). ` +
@@ -254,7 +322,7 @@ export class YandexDirectClient {
     let lastStatus = 0;
 
     for (let attempt = 0; attempt < maxPolls; attempt++) {
-      const res = await this.fetchWithTimeout(
+      const { res, text } = await this.fetchWithTimeout(
         url,
         {
           method: "POST",
@@ -265,7 +333,7 @@ export class YandexDirectClient {
       );
       lastStatus = res.status;
 
-      if (res.status === 200) return res.text();
+      if (res.status === 200) return text;
 
       // 201/202: report still generating. 5xx: transient server error during
       // generation — the docs recommend retrying after retryIn rather than
@@ -276,14 +344,13 @@ export class YandexDirectClient {
         continue;
       }
 
-      const errText = await res.text();
       try {
-        const parsed = JSON.parse(errText) as { error?: ApiError };
+        const parsed = JSON.parse(text) as { error?: ApiError };
         if (parsed.error) throw new YandexDirectError(parsed.error);
       } catch (e) {
         if (e instanceof YandexDirectError) throw e;
       }
-      throw new Error(`Report request failed (HTTP ${res.status}): ${errText.slice(0, 500)}`);
+      throw new Error(`Report request failed (HTTP ${res.status}): ${text.slice(0, 500)}`);
     }
 
     throw new Error(`Report was not ready after ${maxPolls} polls (last HTTP ${lastStatus})`);

@@ -66,3 +66,11 @@ test("upload_ad_image rejects when neither url nor imageData is given", async ()
   assert.equal(res.isError, true);
   assert.equal(calls.length, 0);
 });
+
+test("upload_ad_image rejects a non-http(s) image URL before any fetch/upload", async () => {
+  const { calls, tools } = harness();
+  const res = await tools.upload_ad_image({ name: "Cover", url: "ftp://evil.example/x" });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /http\(s\)/);
+  assert.equal(calls.length, 0);
+});

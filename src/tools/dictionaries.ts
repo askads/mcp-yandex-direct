@@ -21,6 +21,15 @@ export interface GeoRegion {
   ParentId?: number;
 }
 
+/**
+ * Per-client cache of the GeoRegions dictionary. GeoRegions is static for the life of the
+ * process, but get_regions used to re-download the whole (large) dictionary on every call.
+ * Keyed by the client (a WeakMap, so it never outlives it) → correct per token/language.
+ * In the per-request askads deploy the client is short-lived so this is a no-op there, but
+ * standalone/long-lived clients skip the repeated download.
+ */
+const geoRegionsCache = new WeakMap<YandexDirectClient, GeoRegion[]>();
+
 /** Filters geo regions by a case-insensitive name substring and caps the count. */
 export function filterRegions(
   regions: GeoRegion[],
@@ -52,10 +61,15 @@ export function registerDictionaryTools(server: McpServer, client: YandexDirectC
     },
     async ({ query, limit }) => {
       try {
-        const result = await client.call<{ GeoRegions?: GeoRegion[] }>("dictionaries", "get", {
-          DictionaryNames: ["GeoRegions"],
-        });
-        const regions = filterRegions(result.GeoRegions ?? [], query, limit ?? 50);
+        let all = geoRegionsCache.get(client);
+        if (!all) {
+          const result = await client.call<{ GeoRegions?: GeoRegion[] }>("dictionaries", "get", {
+            DictionaryNames: ["GeoRegions"],
+          });
+          all = result.GeoRegions ?? [];
+          geoRegionsCache.set(client, all);
+        }
+        const regions = filterRegions(all, query, limit ?? 50);
         return ok({ GeoRegions: regions, Count: regions.length });
       } catch (e) {
         return fail(e);

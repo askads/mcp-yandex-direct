@@ -8,13 +8,13 @@
     "url": "https://github.com/askads/mcp-yandex-direct",
     "source": "github"
   },
-  "version": "1.1.5",
+  "version": "1.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "mcp-yandex-direct",
-      "version": "1.1.5",
+      "version": "1.2.0",
       "transport": {
         "type": "stdio"
       },

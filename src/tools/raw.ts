@@ -1,12 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, okOrPartial, WRITE_DELETE } from "./util.js";
+import { fail, isReadMethod, okOrPartial, WRITE_DELETE } from "./util.js";
 
-/** Methods that only read data and never mutate the account. */
-export function isReadMethod(method: string): boolean {
-  return /^(get|has|check)/i.test(method);
-}
+// isReadMethod now lives in util.ts (shared with the client's retry-idempotency
+// check); re-exported here so existing importers/tests keep resolving it.
+export { isReadMethod };
 
 export function registerRawTool(server: McpServer, client: YandexDirectClient): void {
   server.registerTool(

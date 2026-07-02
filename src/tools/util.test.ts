@@ -94,6 +94,27 @@ test("normalizeMoney converts keyword bids from micros to units", () => {
   assert.deepEqual(result.Keywords[0], { Id: 1, Keyword: "x", Bid: 0.3, ContextBid: 12.34 });
 });
 
+test("normalizeMoney converts shared-account Funds money fields from micros", () => {
+  const result = normalizeMoney({
+    Campaigns: [
+      {
+        Id: 7,
+        Funds: {
+          Mode: "CAMPAIGN_FUNDS",
+          CampaignFunds: { Sum: 5_000_000, Balance: 3_000_000, SumAvailableForTransfer: 1_000_000 },
+          SharedAccountFunds: { Spend: 2_000_000 },
+        },
+      },
+    ],
+  });
+  const funds = result.Campaigns[0].Funds;
+  assert.equal(funds.CampaignFunds.Sum, 5);
+  assert.equal(funds.CampaignFunds.Balance, 3);
+  assert.equal(funds.CampaignFunds.SumAvailableForTransfer, 1);
+  assert.equal(funds.SharedAccountFunds.Spend, 2);
+  assert.equal(funds.Mode, "CAMPAIGN_FUNDS"); // non-money strings untouched
+});
+
 test("normalizeMoney converts nested DailyBudget.Amount and leaves null/non-money alone", () => {
   const result = normalizeMoney({
     Campaigns: [

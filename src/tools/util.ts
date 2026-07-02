@@ -73,6 +73,11 @@ export function okOrPartial(result: unknown): CallToolResult {
   return { content: [{ type: "text", text }], isError: true };
 }
 
+/** Methods that only read data and never mutate the account (get/has/check). */
+export function isReadMethod(method: string): boolean {
+  return /^(get|has|check)/i.test(method);
+}
+
 export function fail(err: unknown): CallToolResult {
   let message: string;
   if (err instanceof YandexDirectError || err instanceof Error) {
@@ -97,8 +102,23 @@ export function fromMicros(micros: number): number {
  * Money fields the JSON services always return in micros. The Reports service
  * (statistics) already returns currency units, and inputs are taken in units,
  * so list_* output is normalized here to keep money consistent across tools.
+ *
+ * Bid/ContextBid (keyword bids), Amount (DailyBudget) and the shared-account
+ * Funds money keys — Sum/Balance/SumAvailableForTransfer (CampaignFunds) and
+ * Spend (SharedAccountFunds) — are all in micros. These Funds keys are money-only
+ * in the Direct schema, so recursive normalization does not touch same-named
+ * non-money fields. Deprecated keys (BalanceBonus, Refund) are intentionally
+ * omitted rather than risk converting a value the API no longer maintains.
  */
-const MONEY_FIELDS = new Set(["Bid", "ContextBid", "Amount"]);
+const MONEY_FIELDS = new Set([
+  "Bid",
+  "ContextBid",
+  "Amount",
+  "Sum",
+  "Balance",
+  "SumAvailableForTransfer",
+  "Spend",
+]);
 
 /** Recursively converts known money fields from micros to currency units, in place. */
 export function normalizeMoney<T>(value: T, fields: Set<string> = MONEY_FIELDS): T {

@@ -33,6 +33,8 @@ test("get_bid_modifiers defaults Levels and requests type-specific fields", asyn
   assert.deepEqual(calls[0].params.SelectionCriteria.CampaignIds, [1]);
   assert.ok(calls[0].params.MobileAdjustmentFieldNames.includes("BidModifier"));
   assert.ok(calls[0].params.DemographicsAdjustmentFieldNames.includes("Age"));
+  // VIDEO_ADJUSTMENT is a supported type — its field selection must be requested too.
+  assert.ok(calls[0].params.VideoAdjustmentFieldNames.includes("BidModifier"));
 });
 
 test("get_bid_modifiers requires a selection and otherwise makes no call", async () => {

@@ -50,7 +50,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "List campaigns",
       annotations: READ_ONLY,
       description:
-        "Lists campaigns with optional filtering by id, type, state and status. Monetary fields (e.g. DailyBudget.Amount) are returned in account currency units.",
+        "Lists campaigns with optional filtering by id, type, state and status. Monetary fields (DailyBudget.Amount and shared-account Funds — Sum, Balance, SumAvailableForTransfer, Spend) are returned in account currency units.",
       inputSchema: {
         ids: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
         types: z.array(z.enum(CAMPAIGN_TYPES)).optional().describe("Filter by campaign types."),

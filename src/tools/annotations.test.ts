@@ -65,6 +65,11 @@ test("read tools are read-only", () => {
   ];
   for (const name of readTools) {
     assert.equal(ANN[name]?.readOnlyHint, true, `${name} should be readOnly`);
+    // A read-only tool never mutates, so it is non-destructive and idempotent. Some clients
+    // (OpenAI Apps review) require destructiveHint on every tool, so assert all four hints.
+    assert.equal(ANN[name]?.destructiveHint, false, `${name} should not be destructive`);
+    assert.equal(ANN[name]?.idempotentHint, true, `${name} should be idempotent`);
+    assert.equal(ANN[name]?.openWorldHint, true, `${name} should set openWorldHint`);
   }
 });
 
