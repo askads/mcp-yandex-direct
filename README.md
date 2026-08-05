@@ -25,7 +25,7 @@ MCP-сервер для **Yandex Direct API v5**: управляйте конт�
 2. Добавьте сервер — например, в Claude Code ([другие клиенты](#установка)):
 
    ```bash
-   claude mcp add yandex-direct -e YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y mcp-yandex-direct
+   claude mcp add yandex-direct -e YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y mcp-yandex-direct@latest
    ```
 
 3. Спросите ассистента: «Проанализируй мои кампании за неделю и предложи, что улучшить».
@@ -131,7 +131,7 @@ Settings → **Apps & Connectors** → **Advanced settings** → включит�
 <summary><b>Claude Code</b></summary>
 
 ```bash
-claude mcp add yandex-direct -e YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y mcp-yandex-direct
+claude mcp add yandex-direct -e YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y mcp-yandex-direct@latest
 ```
 
 </details>
@@ -177,7 +177,7 @@ claude mcp add yandex-direct -e YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y 
 <details>
 <summary><b>OpenAI Codex</b></summary>
 
-Командой: `codex mcp add yandex-direct --env YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y mcp-yandex-direct`
+Командой: `codex mcp add yandex-direct --env YANDEX_DIRECT_TOKEN=ваш_токен -- npx -y mcp-yandex-direct@latest`
 
 Или в `~/.codex/config.toml`:
 
