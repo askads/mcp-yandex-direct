@@ -21,6 +21,8 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
 - `src/tools/*.ts` — one file per service, each exports `register<Name>Tools(server, client)`.
 - `src/tools/util.ts` — shared helpers (see conventions below).
 - `src/index.ts` — wires every `register*` into the McpServer.
+- `src/telemetry.ts` — anonymous usage pings (ids/names/versions only, never data or
+  arguments; fire-and-forget, must never block or throw; opt-out `ASKADS_TELEMETRY=0`).
 - `src/config.ts` — env → config.
 
 ## Conventions (do not break)
