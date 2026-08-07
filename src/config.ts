@@ -1,11 +1,28 @@
 import type { YandexDirectConfig } from "./types.js";
 
-/** Builds the client config from environment variables, exiting if the token is missing. */
+/**
+ * A missing or malformed environment variable. Thrown instead of exiting on the
+ * spot so index.ts can report the drop-off before the process dies; `reason` is
+ * the machine-readable code that ships with that ping (never a variable's value).
+ */
+export class ConfigError extends Error {
+  readonly reason: string;
+
+  constructor(message: string, reason: string) {
+    super(message);
+    this.name = "ConfigError";
+    this.reason = reason;
+  }
+}
+
+/** Builds the client config from environment variables, throwing ConfigError if the token is missing. */
 export function loadConfig(): YandexDirectConfig {
   const token = process.env.YANDEX_DIRECT_TOKEN;
   if (!token) {
-    console.error("Error: YANDEX_DIRECT_TOKEN environment variable is required.");
-    process.exit(1);
+    throw new ConfigError(
+      "YANDEX_DIRECT_TOKEN environment variable is required.",
+      "missing_token",
+    );
   }
   const timeoutMs = Number(process.env.YANDEX_DIRECT_TIMEOUT_MS);
   const maxRetries = Number(process.env.YANDEX_DIRECT_MAX_RETRIES);
