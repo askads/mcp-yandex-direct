@@ -31,11 +31,23 @@ brew install mcp-publisher
 #    или скачать бинарь из релизов modelcontextprotocol/registry
 
 # 2. Залогиниться под GitHub-аккаунтом-владельцем namespace
-mcp-publisher login github
+mcp-publisher logout                  # login поверх живого токена его не перевыпустит
+mcp-publisher login github --token "$(gh auth token)"   # НЕ голый login — см. ниже
 
 # 3. Из корня репозитория (где лежит server.json) опубликовать
 mcp-publisher publish
 ```
+
+> ⚠️ **Вход именно по токену, а не через device-flow.** `mcp-publisher login github` без
+> `--token` авторизует OAuth-приложение реестра, а организация с политикой «Only approved
+> applications can access data» такому приложению не видна — реестр получает пустой список
+> организаций и отвечает `403 Forbidden: You have permission to publish:
+> io.github.<личный-логин>/*`. Токен `gh` уже имеет scope `read:org` и организацию видит.
+>
+> Опознаётся по самому тексту 403: в нём перечислены доступные namespace. Если там **только
+> личный** `io.github.<логин>/*` и ни одной организации — дело в способе входа. Публичность
+> членства (`gh api -X PUT /orgs/<орг>/public_members/<логин>`) необходима, но её одной мало;
+> проверить: `curl -s https://api.github.com/users/<логин>/orgs` должен показывать организацию.
 
 После успеха сервер появляется по адресу
 `https://registry.modelcontextprotocol.io/v0/servers?search=mcp-yandex-direct`.
