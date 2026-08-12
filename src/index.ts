@@ -29,6 +29,27 @@ import { registerAssetTools } from "./tools/assets.js";
 import { registerMediaTools } from "./tools/media.js";
 
 /**
+ * The prose the calling model receives in the `initialize` result — the only text it
+ * reads before it picks a tool, in every session. Cross-cutting facts only: what this
+ * API is, what it refuses to do, what a call costs and which failures lie about their
+ * cause. Per-tool gotchas belong in that tool's `description` (see CLAUDE.md), and
+ * every line here is paid for out of the client's context, so keep it dense.
+ */
+const INSTRUCTIONS =
+  "Yandex Direct API v5 is one advertiser's PPC cabinet — search and network, not Metrica site " +
+  "analytics. New campaigns and ads can only be created as text ones, but objects of any type " +
+  "(smart, dynamic, CPM, unified performance) can still be listed, renamed, re-budgeted, paused, " +
+  "archived or deleted by id; anything else needs raw_request. No finance service: balance is " +
+  "read-only and nothing moves money. Every call spends the daily Units quota (get_quota shows the " +
+  "rest), and get_statistics starts an async Reports job with its own daily caps — ask for one wide " +
+  "period, not a loop per day or campaign. Money is in account currency units everywhere except " +
+  "raw_request, where it is micros. An agency token acts on the agency's own account unless " +
+  "YANDEX_DIRECT_LOGIN names the client — check that before trusting an empty list; a types filter " +
+  "without UNIFIED_CAMPAIGN hides current performance campaigns. Writes spend real money unless " +
+  "YANDEX_DIRECT_SANDBOX=true, deletes are irreversible, and a partly-failed batch still returns " +
+  "HTTP 200 — read the per-object errors, retry only what failed.";
+
+/**
  * Loads the config, reporting the drop-off if it is missing. An unconfigured
  * server dies before the MCP handshake, so this ping is the only trace such an
  * install ever leaves — and it has to be awaited, or process.exit() below would
@@ -53,10 +74,14 @@ async function main(): Promise<void> {
   const config = await loadConfigOrExit(telemetry);
   const client = new YandexDirectClient(config);
 
-  const server = new McpServer({
-    name: "mcp-yandex-direct",
-    version: readVersion(),
-  });
+  const server = new McpServer(
+    {
+      name: "mcp-yandex-direct",
+      version: readVersion(),
+    },
+    // Rides along in the initialize result; the SDK carries it as a ServerOption.
+    { instructions: INSTRUCTIONS },
+  );
 
   instrumentToolCalls(server, telemetry);
   server.server.oninitialized = () => {
