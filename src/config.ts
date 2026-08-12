@@ -20,7 +20,7 @@ export function loadConfig(): YandexDirectConfig {
   const token = process.env.YANDEX_DIRECT_TOKEN;
   if (!token) {
     throw new ConfigError(
-      "YANDEX_DIRECT_TOKEN environment variable is required.",
+      "Требуется переменная окружения YANDEX_DIRECT_TOKEN.",
       "missing_token",
     );
   }

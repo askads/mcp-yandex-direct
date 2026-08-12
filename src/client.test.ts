@@ -93,7 +93,7 @@ test("callV4() does NOT retry a 5xx for a non-Get action (no duplicate write)", 
     const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false, retryBaseMs: 0 });
     await assert.rejects(
       () => client.callV4("AccountManagement", { Action: "Update" }),
-      /Live v4 "AccountManagement" failed with HTTP 502/,
+      /Live v4 "AccountManagement" вернул HTTP 502/,
     );
     assert.equal(calls, 1);
   } finally {
@@ -168,7 +168,7 @@ test("call() surfaces the raw response when there is neither result nor error", 
       () => client.call("accountmanagement", "get", {}),
       (err: unknown) =>
         err instanceof Error &&
-        /no "result" field/.test(err.message) &&
+        /нет поля "result"/.test(err.message) &&
         /foo/.test(err.message),
     );
   } finally {
@@ -248,7 +248,7 @@ test("getAll stops at maxPages and flags the truncation loudly", async () => {
     assert.equal(result.Campaigns.length, 2);
     // Hitting the cap is explicit, not a bare LimitedBy that the model may ignore.
     assert.equal(result._truncated, true);
-    assert.match(result._truncatedNote ?? "", /more objects remain/);
+    assert.match(result._truncatedNote ?? "", /остались ещё объекты/);
     // LimitedBy is the cursor AFTER the last merged page (page 2 → offset 2), not the stale
     // page-1 value copied from the first page's scalar (which was 1).
     assert.equal(result.LimitedBy, 2);
@@ -373,7 +373,7 @@ test("call() aborts and reports a timeout when the request hangs", async () => {
       timeoutMs: 10,
       maxRetries: 0,
     });
-    await assert.rejects(() => client.call("campaigns", "get", {}), /timed out after 10ms/);
+    await assert.rejects(() => client.call("campaigns", "get", {}), /превысил таймаут 10 мс/);
   } finally {
     globalThis.fetch = original;
   }
@@ -409,7 +409,7 @@ test("report() gives up on a persistent 5xx after maxPolls", async () => {
     const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
     await assert.rejects(
       () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 3 }),
-      /last HTTP 503/,
+      /последний HTTP 503/,
     );
     assert.equal(calls, 3);
   } finally {
@@ -426,7 +426,7 @@ test("call() rejects a service path that resolves to a foreign origin and never 
   try {
     const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
     for (const evil of ["https://evil.example/steal", "http://evil.example/x", "\\\\evil.example/x"]) {
-      await assert.rejects(() => client.call(evil, "get", {}), /foreign origin/);
+      await assert.rejects(() => client.call(evil, "get", {}), /чужой origin/);
     }
     assert.equal(mock.calls.length, 0);
     // A normal relative service still works.

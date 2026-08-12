@@ -146,8 +146,8 @@ test("aggregate: empty slice (header-only TSV) → 0 rows with an explicit empty
   assert.equal(a.rowsTotal, 0);
   assert.equal(a.totals.Cost, 0);
   assert.equal(a.top.length, 0);
-  assert.match(a.note, /0 rows for this slice/);
-  assert.match(a.note, /not that the report is unavailable/);
+  assert.match(a.note, /0 строк в этом срезе/);
+  assert.match(a.note, /а не отчёт недоступен/);
 });
 
 test("aggregate: a real query literally equal to a field name is not mistaken for a header", () => {
@@ -175,7 +175,7 @@ test("get_statistics rejects a single date bound and makes no report request", a
   const { calls, tools } = harness();
   const res = await tools.get_statistics({ dateFrom: "2026-01-01" });
   assert.equal(res.isError, true);
-  assert.match(res.content[0].text, /both dateFrom and dateTo/);
+  assert.match(res.content[0].text, /обе даты — dateFrom и dateTo/);
   assert.equal(calls.length, 0);
 });
 
@@ -199,7 +199,7 @@ test("get_statistics fails when a campaign filter yields only the header row (0 
   const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n`);
   const res = await tools.get_statistics({ campaignIds: [999] });
   assert.equal(res.isError, true);
-  assert.match(res.content[0].text, /0 rows for campaignIds \[999\]/);
+  assert.match(res.content[0].text, /0 строк для campaignIds \[999\]/);
   assert.equal(calls.length, 1); // the report WAS requested; the failure is post-hoc
 });
 

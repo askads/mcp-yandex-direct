@@ -12,13 +12,13 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "get_ad_images",
     {
-      title: "Get ad images",
+      title: "Изображения объявлений",
       annotations: READ_ONLY,
-      description: "Lists images in the ad image library, keyed by image hash. Upload new images with upload_ad_image.",
+      description: "Возвращает список изображений из библиотеки изображений, ключ — хеш изображения. Новые изображения загружает upload_ad_image.",
       inputSchema: {
-        hashes: z.array(z.string()).optional().describe("Filter by image hashes."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset."),
+        hashes: z.array(z.string()).optional().describe("Фильтр по хешам изображений."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи."),
       },
     },
     async ({ hashes, limit, offset }) => {
@@ -40,14 +40,14 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "get_ad_videos",
     {
-      title: "Get ad videos",
+      title: "Видео объявлений",
       annotations: READ_ONLY,
       description:
-        "Reads videos from the ad video library by id (the API requires ids). Uploads go via raw_request (advideos/add).",
+        "Читает видео из библиотеки видео по id (API требует id). Загрузка идёт через raw_request (advideos/add).",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("Video ids (required by the API)."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset."),
+        ids: z.array(z.number().int()).min(1).describe("Id видео (обязательны по требованию API)."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи."),
       },
     },
     async ({ ids, limit, offset }) => {
@@ -69,13 +69,13 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "get_creatives",
     {
-      title: "Get creatives",
+      title: "Креативы",
       annotations: READ_ONLY,
-      description: "Lists creatives (smart banners, HTML5) from the creative library.",
+      description: "Возвращает список креативов (смарт-баннеры, HTML5) из библиотеки креативов.",
       inputSchema: {
-        ids: z.array(z.number().int()).optional().describe("Filter by creative ids."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset."),
+        ids: z.array(z.number().int()).optional().describe("Фильтр по id креативов."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи."),
       },
     },
     async ({ ids, limit, offset }) => {
@@ -97,28 +97,28 @@ export function registerMediaTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "upload_ad_image",
     {
-      title: "Upload ad image",
+      title: "Загрузить изображение",
       annotations: WRITE_CREATE,
       description:
-        "Uploads an image to the ad image library (adimages/add) and returns its AdImageHash — use that hash as AdImageHash on a text & image ad. Provide the image as a public URL (fetched and encoded server-side) or as base64 in imageData. Yandex accepts JPG/PNG/GIF up to 10 MB; a text & image ad needs a landscape image (min 1080×607).",
+        "Загружает изображение в библиотеку изображений (adimages/add) и возвращает его AdImageHash — этот хеш подставляется в поле AdImageHash текстово-графического объявления. Изображение передаётся публичным URL (сервер сам скачает и закодирует) или в base64 через imageData. Яндекс принимает JPG/PNG/GIF до 10 МБ; текстово-графическому объявлению нужна горизонтальная картинка (минимум 1080×607).",
       inputSchema: {
-        name: z.string().min(1).max(255).describe("Image name shown in the library."),
+        name: z.string().min(1).max(255).describe("Название изображения в библиотеке."),
         url: z
           .string()
           .url()
           .optional()
-          .describe("Public image URL; fetched and base64-encoded server-side. Provide this or imageData."),
+          .describe("Публичный URL изображения; сервер скачает его и закодирует в base64. Нужно передать это поле или imageData."),
         imageData: z
           .string()
           .min(1)
           .optional()
-          .describe("Base64-encoded image bytes (a data: URL prefix is stripped). Provide this or url."),
+          .describe("Байты изображения в base64 (префикс data:-URL отбрасывается). Нужно передать это поле или url."),
       },
     },
     async ({ name, url, imageData }) => {
       try {
         if (!url && !imageData) {
-          return fail(new Error("Provide either url or imageData."));
+          return fail(new Error("Нужно передать url или imageData."));
         }
         const data = imageData ? stripDataUrlPrefix(imageData) : await fetchImageBase64(url as string);
         const result = await client.call("adimages", "add", {
@@ -147,31 +147,31 @@ function stripDataUrlPrefix(data: string): string {
 async function fetchImageBase64(url: string): Promise<string> {
   const parsed = new URL(url);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`Image URL must be http(s), got "${parsed.protocol}"`);
+    throw new Error(`URL изображения должен быть http(s), получен "${parsed.protocol}"`);
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
-      throw new Error(`Failed to fetch image from "${url}": HTTP ${res.status}`);
+      throw new Error(`Не удалось скачать изображение по "${url}": HTTP ${res.status}`);
     }
     const declared = Number(res.headers.get("Content-Length"));
     if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
       throw new Error(
-        `Image at "${url}" is ${declared} bytes, over the ${MAX_IMAGE_BYTES}-byte (10 MB) limit.`,
+        `Изображение по "${url}" весит ${declared} байт — больше лимита ${MAX_IMAGE_BYTES} байт (10 МБ).`,
       );
     }
     const bytes = Buffer.from(await res.arrayBuffer());
     if (bytes.length > MAX_IMAGE_BYTES) {
       throw new Error(
-        `Image at "${url}" is ${bytes.length} bytes, over the ${MAX_IMAGE_BYTES}-byte (10 MB) limit.`,
+        `Изображение по "${url}" весит ${bytes.length} байт — больше лимита ${MAX_IMAGE_BYTES} байт (10 МБ).`,
       );
     }
     return bytes.toString("base64");
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Fetching image from "${url}" timed out after ${IMAGE_FETCH_TIMEOUT_MS}ms`);
+      throw new Error(`Скачивание изображения по "${url}" превысило таймаут ${IMAGE_FETCH_TIMEOUT_MS} мс`);
     }
     throw err;
   } finally {

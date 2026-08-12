@@ -7,14 +7,14 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "get_sitelinks",
     {
-      title: "Get sitelink sets",
+      title: "Наборы быстрых ссылок",
       annotations: READ_ONLY,
       description:
-        "Reads sitelink sets (быстрые ссылки) by id. The API requires set ids — get them from ads' SitelinkSetId.",
+        "Читает наборы быстрых ссылок по id. API требует id наборов — их можно взять из поля SitelinkSetId объявлений.",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("Sitelink set ids (required by the API)."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset."),
+        ids: z.array(z.number().int()).min(1).describe("Id наборов быстрых ссылок (обязательны по требованию API)."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи."),
       },
     },
     async ({ ids, limit, offset }) => {
@@ -37,22 +37,22 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "create_sitelinks_set",
     {
-      title: "Create sitelink set",
+      title: "Создать набор быстрых ссылок",
       annotations: WRITE_CREATE,
       description:
-        "Creates a sitelink set (1–8 links). Sets are immutable — to change links, create a new set and reassign it to the ad.",
+        "Создаёт набор быстрых ссылок (1–8 штук). Наборы неизменяемы — чтобы поменять ссылки, нужно создать новый набор и переназначить его объявлению.",
       inputSchema: {
         sitelinks: z
           .array(
             z.object({
-              title: z.string().min(1).describe("Sitelink title."),
-              href: z.string().optional().describe("Sitelink URL."),
-              description: z.string().optional().describe("Sitelink description (for some ad types)."),
+              title: z.string().min(1).describe("Текст быстрой ссылки."),
+              href: z.string().optional().describe("URL быстрой ссылки."),
+              description: z.string().optional().describe("Описание быстрой ссылки (для некоторых типов объявлений)."),
             }),
           )
           .min(1)
           .max(8)
-          .describe("1–8 sitelinks."),
+          .describe("От 1 до 8 быстрых ссылок."),
       },
     },
     async ({ sitelinks }) => {
@@ -73,11 +73,11 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "delete_sitelinks",
     {
-      title: "Delete sitelink sets",
+      title: "Удалить наборы быстрых ссылок",
       annotations: WRITE_DELETE,
-      description: "Deletes sitelink sets by id (only sets not assigned to any ad can be deleted).",
+      description: "Удаляет наборы быстрых ссылок по id (удалить можно только наборы, не привязанные ни к одному объявлению).",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("Sitelink set ids to delete."),
+        ids: z.array(z.number().int()).min(1).describe("Id наборов, которые нужно удалить."),
       },
     },
     async ({ ids }) => {
@@ -93,14 +93,14 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "get_callouts",
     {
-      title: "Get callouts",
+      title: "Уточнения",
       annotations: READ_ONLY,
       description:
-        "Lists callouts (уточнения) from the adextensions library. Attach a callout to an ad via the Ads service.",
+        "Возвращает список уточнений из библиотеки adextensions. Привязать уточнение к объявлению можно через сервис Ads.",
       inputSchema: {
-        ids: z.array(z.number().int()).optional().describe("Filter by callout ids."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset."),
+        ids: z.array(z.number().int()).optional().describe("Фильтр по id уточнений."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи."),
       },
     },
     async ({ ids, limit, offset }) => {
@@ -123,15 +123,15 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "add_callouts",
     {
-      title: "Add callouts",
+      title: "Добавить уточнения",
       annotations: WRITE_CREATE,
       description:
-        "Creates callouts (уточнения), up to 25 characters each. Callouts are immutable — delete and recreate to change. Assign to ads via the Ads service.",
+        "Создаёт уточнения, до 25 символов каждое. Уточнения неизменяемы — чтобы поменять, нужно удалить и создать заново. Привязка к объявлениям — через сервис Ads.",
       inputSchema: {
         texts: z
           .array(z.string().min(1).max(25))
           .min(1)
-          .describe("Callout texts, up to 25 characters each."),
+          .describe("Тексты уточнений, до 25 символов каждый."),
       },
     },
     async ({ texts }) => {
@@ -148,11 +148,11 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "delete_callouts",
     {
-      title: "Delete callouts",
+      title: "Удалить уточнения",
       annotations: WRITE_DELETE,
-      description: "Deletes callouts by id (adextensions/delete).",
+      description: "Удаляет уточнения по id (adextensions/delete).",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("Callout ids to delete."),
+        ids: z.array(z.number().int()).min(1).describe("Id уточнений, которые нужно удалить."),
       },
     },
     async ({ ids }) => {
@@ -170,13 +170,13 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "get_vcards",
     {
-      title: "Get vCards",
+      title: "Визитки",
       annotations: READ_ONLY,
-      description: "Reads virtual business cards (визитки) by id. The API requires ids — get them from ads' VCardId.",
+      description: "Читает виртуальные визитки по id. API требует id — их можно взять из поля VCardId объявлений.",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("vCard ids (required by the API)."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset."),
+        ids: z.array(z.number().int()).min(1).describe("Id визиток (обязательны по требованию API)."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи."),
       },
     },
     async ({ ids, limit, offset }) => {
@@ -216,35 +216,35 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "create_vcard",
     {
-      title: "Create vCard",
+      title: "Создать визитку",
       annotations: WRITE_CREATE,
       description:
-        "Creates a virtual business card in a campaign. vCards are immutable — delete and recreate to change.",
+        "Создаёт виртуальную визитку в кампании. Визитки неизменяемы — чтобы поменять, нужно удалить и создать заново.",
       inputSchema: {
-        campaignId: z.number().int().describe("Campaign the vCard belongs to."),
-        country: z.string().min(1).describe("Country, e.g. Россия."),
-        city: z.string().min(1).describe("City, e.g. Москва."),
-        companyName: z.string().min(1).describe("Company name."),
+        campaignId: z.number().int().describe("Кампания, к которой относится визитка."),
+        country: z.string().min(1).describe("Страна, например Россия."),
+        city: z.string().min(1).describe("Город, например Москва."),
+        companyName: z.string().min(1).describe("Название организации."),
         workTime: z
           .string()
           .min(1)
-          .describe('Work time in API format, e.g. "1#5#9#00#18#00" = Mon–Fri 09:00–18:00.'),
+          .describe('Время работы в формате API, например "1#5#9#00#18#00" — пн–пт 09:00–18:00.'),
         phone: z
           .object({
-            countryCode: z.string().min(1).describe('Country code, e.g. "+7".'),
-            cityCode: z.string().min(1).describe('City/operator code, e.g. "495".'),
-            phoneNumber: z.string().min(1).describe("Local number."),
-            extension: z.string().optional().describe("Extension, if any."),
+            countryCode: z.string().min(1).describe('Код страны, например "+7".'),
+            cityCode: z.string().min(1).describe('Код города или оператора, например "495".'),
+            phoneNumber: z.string().min(1).describe("Местный номер."),
+            extension: z.string().optional().describe("Добавочный номер, если есть."),
           })
-          .describe("Contact phone."),
+          .describe("Контактный телефон."),
         street: z.string().optional(),
         house: z.string().optional(),
         building: z.string().optional(),
         apartment: z.string().optional(),
         contactPerson: z.string().optional(),
         contactEmail: z.string().optional(),
-        extraMessage: z.string().optional().describe("Additional info shown on the card."),
-        ogrn: z.string().optional().describe("OGRN registration number."),
+        extraMessage: z.string().optional().describe("Дополнительная информация на визитке."),
+        ogrn: z.string().optional().describe("ОГРН."),
       },
     },
     async (a) => {
@@ -281,11 +281,11 @@ export function registerAssetTools(server: McpServer, client: YandexDirectClient
   server.registerTool(
     "delete_vcards",
     {
-      title: "Delete vCards",
+      title: "Удалить визитки",
       annotations: WRITE_DELETE,
-      description: "Deletes vCards by id (vcards/delete).",
+      description: "Удаляет визитки по id (vcards/delete).",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("vCard ids to delete."),
+        ids: z.array(z.number().int()).min(1).describe("Id визиток, которые нужно удалить."),
       },
     },
     async ({ ids }) => {

@@ -47,16 +47,16 @@ export function registerDictionaryTools(server: McpServer, client: YandexDirectC
   server.registerTool(
     "get_regions",
     {
-      title: "Get geo regions",
+      title: "Поиск регионов",
       annotations: READ_ONLY,
       description:
-        "Looks up geo region ids for targeting (the regionIds that create_ad_group needs). Filter by a name substring; results are capped by limit.",
+        "Ищет id регионов для таргетинга (те самые regionIds, которые нужны create_ad_group). Фильтр — подстрока названия; количество результатов ограничено limit.",
       inputSchema: {
         query: z
           .string()
           .optional()
-          .describe("Case-insensitive substring of the region name, e.g. 'Москва' or 'Moscow'."),
-        limit: z.number().int().min(1).max(1000).optional().describe("Max regions to return. Default 50."),
+          .describe("Подстрока названия региона без учёта регистра, например 'Москва' или 'Moscow'."),
+        limit: z.number().int().min(1).max(1000).optional().describe("Максимум регионов в ответе. По умолчанию 50."),
       },
     },
     async ({ query, limit }) => {
@@ -80,12 +80,12 @@ export function registerDictionaryTools(server: McpServer, client: YandexDirectC
   server.registerTool(
     "get_dictionaries",
     {
-      title: "Get dictionaries",
+      title: "Справочники",
       annotations: READ_ONLY,
       description:
-        "Returns Yandex Direct reference dictionaries (currencies, time zones, constants, ad categories, ...). GeoRegions can be very large — prefer get_regions for region lookups.",
+        "Возвращает справочники Яндекс Директа (валюты, часовые пояса, константы, категории объявлений, …). GeoRegions может быть очень большим — для поиска регионов лучше get_regions.",
       inputSchema: {
-        names: z.array(z.enum(DICTIONARY_NAMES)).min(1).describe("Dictionary names to fetch."),
+        names: z.array(z.enum(DICTIONARY_NAMES)).min(1).describe("Названия нужных справочников."),
       },
     },
     async ({ names }) => {

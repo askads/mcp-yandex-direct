@@ -39,7 +39,7 @@ test("okOrPartial flags a partial failure as an error", () => {
   });
   assert.equal(result.isError, true);
   const text = textOf(result);
-  assert.match(text, /1 of 2 object\(s\) failed/);
+  assert.match(text, /Ошибки в 1 из 2 объектов/);
   assert.match(text, /\[5006\] Object not found: AdGroupId 1/);
   // the full payload is still included for context
   assert.match(text, /"Id":1/);
@@ -50,7 +50,7 @@ test("okOrPartial flags an all-failed action response", () => {
     ActionResults: [{ Errors: [{ Code: 8800, Message: "No rights" }] }],
   });
   assert.equal(result.isError, true);
-  assert.match(textOf(result), /All 1 object\(s\) failed/);
+  assert.match(textOf(result), /Ошибки во всех объектах \(1\)/);
 });
 
 test("okOrPartial ignores arrays that are not *Results", () => {

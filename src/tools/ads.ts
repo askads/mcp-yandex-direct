@@ -12,22 +12,22 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
   server.registerTool(
     "list_ads",
     {
-      title: "List ads",
+      title: "Список объявлений",
       annotations: READ_ONLY,
-      description: "Lists ads with optional filtering by campaign, ad group, id, state and status.",
+      description: "Возвращает список объявлений с необязательными фильтрами по кампании, группе, id, состоянию и статусу.",
       inputSchema: {
-        campaignIds: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
-        adGroupIds: z.array(z.number().int()).optional().describe("Filter by ad group ids."),
-        ids: z.array(z.number().int()).optional().describe("Filter by ad ids."),
-        states: z.array(z.enum(AD_STATES)).optional().describe("Filter by ad states."),
-        statuses: z.array(z.enum(AD_STATUSES)).optional().describe("Filter by moderation statuses."),
-        fieldNames: z.array(z.string()).optional().describe("Ad fields to return."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset (objects to skip)."),
+        campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
+        adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
+        ids: z.array(z.number().int()).optional().describe("Фильтр по id объявлений."),
+        states: z.array(z.enum(AD_STATES)).optional().describe("Фильтр по состояниям объявлений."),
+        statuses: z.array(z.enum(AD_STATUSES)).optional().describe("Фильтр по статусам модерации."),
+        fieldNames: z.array(z.string()).optional().describe("Какие поля объявления вернуть."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
           .boolean()
           .optional()
-          .describe("Fetch all pages by following LimitedBy (ignores limit as a total cap)."),
+          .describe("Забрать все страницы, идя по LimitedBy (limit тогда не ограничивает общий объём)."),
       },
     },
     async ({ campaignIds, adGroupIds, ids, states, statuses, fieldNames, limit, offset, autoPaginate }) => {
@@ -58,16 +58,16 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
   server.registerTool(
     "create_text_ad",
     {
-      title: "Create text ad",
+      title: "Создать текстовое объявление",
       annotations: WRITE_CREATE,
-      description: "Creates a text ad (TextAd) inside an ad group. New ads start as drafts.",
+      description: "Создаёт текстовое объявление (TextAd) в группе объявлений. Новые объявления создаются черновиками.",
       inputSchema: {
-        adGroupId: z.number().int().describe("Parent ad group id."),
-        title: z.string().min(1).max(56).describe("Title (Title 1), up to 56 characters."),
-        title2: z.string().max(30).optional().describe("Second title (Title 2), up to 30 characters."),
-        text: z.string().min(1).max(81).describe("Ad body text, up to 81 characters."),
-        href: z.string().optional().describe("Landing page URL."),
-        mobile: z.boolean().optional().describe("Whether this is a mobile ad."),
+        adGroupId: z.number().int().describe("Id родительской группы объявлений."),
+        title: z.string().min(1).max(56).describe("Заголовок (Title 1), до 56 символов."),
+        title2: z.string().max(30).optional().describe("Второй заголовок (Title 2), до 30 символов."),
+        text: z.string().min(1).max(81).describe("Текст объявления, до 81 символа."),
+        href: z.string().optional().describe("URL посадочной страницы."),
+        mobile: z.boolean().optional().describe("Мобильное ли это объявление."),
       },
     },
     async ({ adGroupId, title, title2, text, href, mobile }) => {
@@ -91,13 +91,13 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
   server.registerTool(
     "ad_action",
     {
-      title: "Ad action",
+      title: "Действие с объявлениями",
       annotations: WRITE_DELETE,
       description:
-        "Performs a lifecycle action on ads by id: moderate, suspend, resume, archive, unarchive or delete.",
+        "Выполняет действие над объявлениями по id: moderate, suspend, resume, archive, unarchive или delete.",
       inputSchema: {
         action: z.enum(["moderate", "suspend", "resume", "archive", "unarchive", "delete"]),
-        ids: z.array(z.number().int()).min(1).describe("Ad ids to act on."),
+        ids: z.array(z.number().int()).min(1).describe("Id объявлений, к которым применить действие."),
       },
     },
     async ({ action, ids }) => {
@@ -113,23 +113,23 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
   server.registerTool(
     "update_text_ad",
     {
-      title: "Update text ad",
+      title: "Обновить текстовое объявление",
       annotations: WRITE_UPDATE,
       description:
-        "Updates a text ad's title, text or landing page (ads/update). Editing an active ad sends it back to moderation.",
+        "Обновляет заголовок, текст или посадочную страницу текстового объявления (ads/update). Правка активного объявления отправляет его на повторную модерацию.",
       inputSchema: {
-        id: z.number().int().describe("Ad id to update."),
-        title: z.string().min(1).max(56).optional().describe("New Title (Title 1), up to 56 characters."),
-        title2: z.string().max(30).optional().describe("New second title (Title 2), up to 30 characters."),
-        text: z.string().min(1).max(81).optional().describe("New body text, up to 81 characters."),
-        href: z.string().optional().describe("New landing page URL."),
+        id: z.number().int().describe("Id объявления, которое нужно обновить."),
+        title: z.string().min(1).max(56).optional().describe("Новый заголовок (Title 1), до 56 символов."),
+        title2: z.string().max(30).optional().describe("Новый второй заголовок (Title 2), до 30 символов."),
+        text: z.string().min(1).max(81).optional().describe("Новый текст объявления, до 81 символа."),
+        href: z.string().optional().describe("Новый URL посадочной страницы."),
       },
     },
     async ({ id, title, title2, text, href }) => {
       try {
         const textAd = compact({ Title: title, Title2: title2, Text: text, Href: href });
         if (Object.keys(textAd).length === 0) {
-          return fail("Provide at least one field to update.");
+          return fail("Нужно указать хотя бы одно поле для обновления.");
         }
         const result = await client.call("ads", "update", { Ads: [{ Id: id, TextAd: textAd }] });
         return okOrPartial(result);

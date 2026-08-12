@@ -59,44 +59,44 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
   server.registerTool(
     "get_statistics",
     {
-      title: "Get statistics",
+      title: "Статистика",
       annotations: READ_ONLY,
       description:
-        "Requests a performance report via the Yandex Direct Reports service. By default the report is AGGREGATED over the whole period (one row per object) — add \"Date\" to fieldNames only for day-by-day dynamics or trend questions. ALL_TIME without a campaign filter is rejected for SEARCH_QUERY/CRITERIA reports; pass campaignIds or a bounded date range. SEARCH_QUERY_PERFORMANCE_REPORT returns a COMPUTED SUMMARY (totals over ALL rows + top-N detail + tail rollup + zero-click/zero-conversion counts), not raw rows — shape it with sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, and add Conversions to fieldNames for conversion-based counts. Other report types return tab-separated rows (no header).",
+        "Запрашивает отчёт по эффективности через сервис Reports Яндекс Директа. По умолчанию отчёт АГРЕГИРОВАН за весь период (одна строка на объект) — добавлять \"Date\" в fieldNames только для динамики по дням или вопросов о трендах. ALL_TIME без фильтра по кампаниям отклоняется для отчётов SEARCH_QUERY/CRITERIA: нужно передать campaignIds или ограниченный период. SEARCH_QUERY_PERFORMANCE_REPORT возвращает не сырые строки, а ВЫЧИСЛЕННУЮ СВОДКУ (итоги по ВСЕМ строкам + детализация top-N + свёртка хвоста + количество строк без кликов и без конверсий); её форму задают sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, а для подсчётов по конверсиям нужно добавить Conversions в fieldNames. Остальные типы отчётов возвращают строки, разделённые табуляцией (без заголовка).",
       inputSchema: {
-        reportType: z.enum(REPORT_TYPES).optional().describe("Report type. Default CAMPAIGN_PERFORMANCE_REPORT."),
+        reportType: z.enum(REPORT_TYPES).optional().describe("Тип отчёта. По умолчанию CAMPAIGN_PERFORMANCE_REPORT."),
         dateRangeType: z
           .enum(DATE_RANGES)
           .optional()
-          .describe("Predefined date range. Inferred as CUSTOM_DATE when dateFrom/dateTo are given."),
-        dateFrom: isoDate().optional().describe("Start date YYYY-MM-DD (required for CUSTOM_DATE)."),
-        dateTo: isoDate().optional().describe("End date YYYY-MM-DD (required for CUSTOM_DATE)."),
-        fieldNames: z.array(z.string()).optional().describe("Report columns (must be valid for the report type)."),
-        campaignIds: z.array(z.number().int()).optional().describe("Limit the report to these campaign ids."),
-        includeVat: z.boolean().optional().describe("Whether costs include VAT. Default true."),
+          .describe("Предустановленный период. Если заданы dateFrom/dateTo, подставляется CUSTOM_DATE."),
+        dateFrom: isoDate().optional().describe("Дата начала YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
+        dateTo: isoDate().optional().describe("Дата окончания YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
+        fieldNames: z.array(z.string()).optional().describe("Колонки отчёта (должны быть допустимы для его типа)."),
+        campaignIds: z.array(z.number().int()).optional().describe("Ограничить отчёт этими id кампаний."),
+        includeVat: z.boolean().optional().describe("Включать ли НДС в расход. По умолчанию true."),
         // Aggregation controls — apply to SEARCH_QUERY_PERFORMANCE_REPORT (computed summary).
         sortBy: z
           .enum(["Cost", "Clicks", "Impressions", "Conversions", "Ctr", "AvgCpc"])
           .optional()
-          .describe("Metric to rank the detail rows by. Default Cost."),
-        order: z.enum(["asc", "desc"]).optional().describe("Sort order for detail rows. Default desc."),
+          .describe("Метрика для ранжирования строк детализации. По умолчанию Cost."),
+        order: z.enum(["asc", "desc"]).optional().describe("Порядок сортировки строк детализации. По умолчанию desc."),
         topN: z
           .number()
           .int()
           .min(1)
           .max(MAX_TOP_N)
           .optional()
-          .describe(`Max detail rows in the summary (server-capped at ${MAX_TOP_N}). Default 50.`),
-        minCost: z.number().min(0).optional().describe("Only include rows with Cost >= this in the detail list."),
+          .describe(`Максимум строк детализации в сводке (на сервере ограничено ${MAX_TOP_N}). По умолчанию 50.`),
+        minCost: z.number().min(0).optional().describe("Включать в детализацию только строки с Cost >= этого значения."),
         queryContains: z
           .string()
           .optional()
-          .describe("Only include rows whose query/criterion contains this substring (case-insensitive)."),
-        zeroClicksOnly: z.boolean().optional().describe("Only include rows with 0 clicks in the detail list."),
+          .describe("Включать только строки, где запрос или условие содержит эту подстроку (без учёта регистра)."),
+        zeroClicksOnly: z.boolean().optional().describe("Включать в детализацию только строки с 0 кликов."),
         zeroConversionsOnly: z
           .boolean()
           .optional()
-          .describe("Only rows with clicks>0 and 0 conversions (needs Conversions in fieldNames)."),
+          .describe("Только строки с clicks>0 и 0 конверсий (нужно Conversions в fieldNames)."),
       },
     },
     async ({
@@ -121,7 +121,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         // mistake. Require both dates or neither.
         if ((dateFrom === undefined) !== (dateTo === undefined)) {
           return fail(
-            "Provide both dateFrom and dateTo (YYYY-MM-DD), or neither — a single date bound is ambiguous.",
+            "Нужно указать обе даты — dateFrom и dateTo (YYYY-MM-DD) — либо ни одной: одна граница периода неоднозначна.",
           );
         }
         // An explicit date pair must win over a predefined dateRangeType, otherwise passing
@@ -135,14 +135,14 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           type === "SEARCH_QUERY_PERFORMANCE_REPORT" || type === "CRITERIA_PERFORMANCE_REPORT";
         if (range === "ALL_TIME" && heavy && !campaignIds?.length) {
           return fail(
-            `ALL_TIME without a campaign filter is not allowed for ${type} (it returns the whole account and explodes in size). Pass campaignIds, or a bounded date range like LAST_30_DAYS or CUSTOM_DATE.`,
+            `ALL_TIME без фильтра по кампаниям недопустим для ${type} (вернётся весь аккаунт, и размер ответа взорвётся). Нужно передать campaignIds или ограниченный период — например LAST_30_DAYS или CUSTOM_DATE.`,
           );
         }
 
         const selection: Record<string, unknown> = {};
         if (range === "CUSTOM_DATE") {
           if (!dateFrom || !dateTo) {
-            return fail("CUSTOM_DATE range requires both dateFrom and dateTo (YYYY-MM-DD).");
+            return fail("Для периода CUSTOM_DATE нужны обе даты: dateFrom и dateTo (YYYY-MM-DD).");
           }
           selection.DateFrom = dateFrom;
           selection.DateTo = dateTo;
@@ -189,7 +189,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         // the filter and broaden"; an explicit error makes it fix the filter instead.
         if (campaignIds?.length && countDataRows(tsv, params.FieldNames) === 0) {
           return fail(
-            `Report returned 0 rows for campaignIds [${campaignIds.join(", ")}] over ${range}. Check the campaignId(s) and the date range — do not broaden the filter blindly.`,
+            `Отчёт вернул 0 строк для campaignIds [${campaignIds.join(", ")}] за ${range}. Проверить id кампаний и период — не расширять фильтр вслепую.`,
           );
         }
         return ok(tsv);

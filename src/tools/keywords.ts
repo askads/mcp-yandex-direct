@@ -9,21 +9,21 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "list_keywords",
     {
-      title: "List keywords",
+      title: "Список ключевых фраз",
       annotations: READ_ONLY,
       description:
-        "Lists keywords filtered by campaign, ad group or id. Bid and ContextBid are returned in account currency units.",
+        "Возвращает список ключевых фраз с фильтром по кампании, группе объявлений или id. Bid и ContextBid отдаются в валюте аккаунта.",
       inputSchema: {
-        campaignIds: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
-        adGroupIds: z.array(z.number().int()).optional().describe("Filter by ad group ids."),
-        ids: z.array(z.number().int()).optional().describe("Filter by keyword ids."),
-        fieldNames: z.array(z.string()).optional().describe("Keyword fields to return."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset (objects to skip)."),
+        campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
+        adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
+        ids: z.array(z.number().int()).optional().describe("Фильтр по id ключевых фраз."),
+        fieldNames: z.array(z.string()).optional().describe("Какие поля ключевой фразы вернуть."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
           .boolean()
           .optional()
-          .describe("Fetch all pages by following LimitedBy (ignores limit as a total cap)."),
+          .describe("Забрать все страницы, идя по LimitedBy (limit тогда не ограничивает общий объём)."),
       },
     },
     async ({ campaignIds, adGroupIds, ids, fieldNames, limit, offset, autoPaginate }) => {
@@ -52,21 +52,21 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "add_keywords",
     {
-      title: "Add keywords",
+      title: "Добавить ключевые фразы",
       annotations: WRITE_CREATE,
-      description: "Adds keywords to an ad group, with optional search and network bids.",
+      description: "Добавляет ключевые фразы в группу объявлений, при необходимости — со ставками для поиска и сетей.",
       inputSchema: {
-        adGroupId: z.number().int().describe("Target ad group id."),
+        adGroupId: z.number().int().describe("Id группы объявлений."),
         keywords: z
           .array(
             z.object({
-              keyword: z.string().min(1).describe("Keyword phrase, with operators if needed."),
-              bid: z.number().positive().optional().describe("Search bid in currency units."),
-              contextBid: z.number().positive().optional().describe("Network bid in currency units."),
+              keyword: z.string().min(1).describe("Ключевая фраза, при необходимости с операторами."),
+              bid: z.number().positive().optional().describe("Ставка на поиске в валюте аккаунта."),
+              contextBid: z.number().positive().optional().describe("Ставка в сетях в валюте аккаунта."),
             }),
           )
           .min(1)
-          .describe("Keywords to add."),
+          .describe("Ключевые фразы для добавления."),
       },
     },
     async ({ adGroupId, keywords }) => {
@@ -90,12 +90,12 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "keyword_action",
     {
-      title: "Keyword action",
+      title: "Действие с ключевыми фразами",
       annotations: WRITE_DELETE,
-      description: "Performs a lifecycle action on keywords by id: suspend, resume or delete.",
+      description: "Выполняет действие над ключевыми фразами по id: suspend, resume или delete.",
       inputSchema: {
         action: z.enum(["suspend", "resume", "delete"]),
-        ids: z.array(z.number().int()).min(1).describe("Keyword ids to act on."),
+        ids: z.array(z.number().int()).min(1).describe("Id ключевых фраз, к которым применить действие."),
       },
     },
     async ({ action, ids }) => {
@@ -111,33 +111,33 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "set_keyword_bids",
     {
-      title: "Set keyword bids",
+      title: "Задать ставки ключевых фраз",
       annotations: WRITE_UPDATE,
       description:
-        "Sets manual search/network bids on keywords, or on all keywords in given ad groups or campaigns (keywordbids/set). Bids are in account currency units.",
+        "Задаёт ручные ставки на поиске и в сетях для ключевых фраз либо для всех фраз указанных групп объявлений или кампаний (keywordbids/set). Ставки — в валюте аккаунта.",
       inputSchema: {
         bids: z
           .array(
             z.object({
-              keywordId: z.number().int().optional().describe("Target a single keyword."),
-              adGroupId: z.number().int().optional().describe("Target all keywords in an ad group."),
-              campaignId: z.number().int().optional().describe("Target all keywords in a campaign."),
-              bid: z.number().positive().optional().describe("Search bid in currency units."),
-              contextBid: z.number().positive().optional().describe("Network bid in currency units."),
+              keywordId: z.number().int().optional().describe("Применить к одной ключевой фразе."),
+              adGroupId: z.number().int().optional().describe("Применить ко всем фразам группы объявлений."),
+              campaignId: z.number().int().optional().describe("Применить ко всем фразам кампании."),
+              bid: z.number().positive().optional().describe("Ставка на поиске в валюте аккаунта."),
+              contextBid: z.number().positive().optional().describe("Ставка в сетях в валюте аккаунта."),
             }),
           )
           .min(1)
-          .describe("Each item needs one target id and at least one of bid/contextBid."),
+          .describe("В каждом элементе нужен один целевой id и хотя бы одно из полей bid/contextBid."),
       },
     },
     async ({ bids }) => {
       try {
         for (const b of bids) {
           if (b.keywordId === undefined && b.adGroupId === undefined && b.campaignId === undefined) {
-            return fail("Each bid item requires keywordId, adGroupId or campaignId.");
+            return fail("В каждом элементе нужен keywordId, adGroupId или campaignId.");
           }
           if (b.bid === undefined && b.contextBid === undefined) {
-            return fail("Each bid item requires bid and/or contextBid.");
+            return fail("В каждом элементе нужен bid и/или contextBid.");
           }
         }
         const KeywordBids = bids.map((b) =>

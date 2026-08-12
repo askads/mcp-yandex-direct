@@ -22,28 +22,28 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
   server.registerTool(
     "get_bid_modifiers",
     {
-      title: "Get bid modifiers",
+      title: "Корректировки ставок",
       annotations: READ_ONLY,
       description:
-        "Reads bid adjustments (mobile, desktop, demographics, retargeting, regional, video) for campaigns or ad groups. BidModifier is a percentage, not money.",
+        "Читает корректировки ставок (мобильные, десктоп, демография, ретаргетинг, регионы, видео) для кампаний или групп объявлений. BidModifier — это процент, а не деньги.",
       inputSchema: {
-        campaignIds: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
-        adGroupIds: z.array(z.number().int()).optional().describe("Filter by ad group ids."),
-        ids: z.array(z.number().int()).optional().describe("Filter by bid modifier ids."),
+        campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
+        adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
+        ids: z.array(z.number().int()).optional().describe("Фильтр по id корректировок."),
         types: z
           .array(z.enum(BID_MODIFIER_TYPES))
           .optional()
-          .describe("Filter by adjustment types."),
+          .describe("Фильтр по типам корректировок."),
         levels: z
           .array(z.enum(LEVELS))
           .optional()
-          .describe("Levels to read. Defaults to both CAMPAIGN and AD_GROUP."),
+          .describe("Уровни, на которых читать. По умолчанию оба: CAMPAIGN и AD_GROUP."),
       },
     },
     async ({ campaignIds, adGroupIds, ids, types, levels }) => {
       try {
         if (!campaignIds?.length && !adGroupIds?.length && !ids?.length) {
-          return fail("Provide at least one of campaignIds, adGroupIds or ids.");
+          return fail("Нужно указать хотя бы одно из: campaignIds, adGroupIds или ids.");
         }
         const selection = compact({
           CampaignIds: campaignIds?.length ? campaignIds : undefined,
@@ -75,24 +75,24 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
   server.registerTool(
     "add_bid_modifier",
     {
-      title: "Add bid modifier",
+      title: "Добавить корректировку ставок",
       annotations: WRITE_CREATE,
       description:
-        "Adds a bid adjustment to a campaign or ad group. BidModifier values are percentages per the API (e.g. 0–1300), not money.",
+        "Добавляет корректировку ставок на кампанию или группу объявлений. Значения BidModifier — проценты по правилам API (например, 0–1300), а не деньги.",
       inputSchema: {
-        campaignId: z.number().int().optional().describe("Target campaign id (use this OR adGroupId)."),
-        adGroupId: z.number().int().optional().describe("Target ad group id (use this OR campaignId)."),
+        campaignId: z.number().int().optional().describe("Id кампании (либо это поле, либо adGroupId)."),
+        adGroupId: z.number().int().optional().describe("Id группы объявлений (либо это поле, либо campaignId)."),
         mobile: z
           .object({
-            percent: z.number().int().min(0).describe("Adjustment percent."),
-            os: z.enum(OS_TYPES).optional().describe("Limit to IOS or ANDROID."),
+            percent: z.number().int().min(0).describe("Процент корректировки."),
+            os: z.enum(OS_TYPES).optional().describe("Ограничить IOS или ANDROID."),
           })
           .optional()
-          .describe("Mobile bid adjustment."),
+          .describe("Корректировка для мобильных."),
         desktop: z
           .object({ percent: z.number().int().min(0) })
           .optional()
-          .describe("Desktop bid adjustment."),
+          .describe("Корректировка для десктопа."),
         demographics: z
           .array(
             z.object({
@@ -102,7 +102,7 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
             }),
           )
           .optional()
-          .describe("Demographic bid adjustments."),
+          .describe("Корректировки по демографии."),
         retargeting: z
           .array(
             z.object({
@@ -111,17 +111,17 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
             }),
           )
           .optional()
-          .describe("Retargeting bid adjustments."),
+          .describe("Корректировки по ретаргетингу."),
         regional: z
           .array(z.object({ regionId: z.number().int(), percent: z.number().int().min(0) }))
           .optional()
-          .describe("Regional bid adjustments."),
+          .describe("Корректировки по регионам."),
       },
     },
     async ({ campaignId, adGroupId, mobile, desktop, demographics, retargeting, regional }) => {
       try {
         if ((campaignId === undefined) === (adGroupId === undefined)) {
-          return fail("Provide exactly one of campaignId or adGroupId.");
+          return fail("Нужно указать ровно одно: campaignId или adGroupId.");
         }
         const item = compact({
           CampaignId: campaignId,
@@ -145,7 +145,7 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
         });
         const hasAdjustment = Object.keys(item).some((k) => k !== "CampaignId" && k !== "AdGroupId");
         if (!hasAdjustment) {
-          return fail("Provide at least one adjustment (mobile, desktop, demographics, retargeting or regional).");
+          return fail("Нужно указать хотя бы одну корректировку: mobile, desktop, demographics, retargeting или regional.");
         }
         const result = await client.call("bidmodifiers", "add", { BidModifiers: [item] });
         return okOrPartial(result);
@@ -158,28 +158,28 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
   server.registerTool(
     "set_bid_modifiers",
     {
-      title: "Set bid modifiers",
+      title: "Изменить корректировки ставок",
       annotations: WRITE_UPDATE,
       description:
-        "Changes the percent of existing bid modifiers and/or enables/disables them (bidmodifiers/set), by modifier id.",
+        "Меняет процент существующих корректировок и/или включает и выключает их (bidmodifiers/set) по id корректировки.",
       inputSchema: {
         bids: z
           .array(
             z.object({
-              id: z.number().int().describe("Bid modifier id."),
-              percent: z.number().int().min(0).optional().describe("New adjustment percent."),
-              enabled: z.boolean().optional().describe("Enable or disable the adjustment."),
+              id: z.number().int().describe("Id корректировки."),
+              percent: z.number().int().min(0).optional().describe("Новый процент корректировки."),
+              enabled: z.boolean().optional().describe("Включить или выключить корректировку."),
             }),
           )
           .min(1)
-          .describe("Each item needs an id and at least one of percent/enabled."),
+          .describe("В каждом элементе нужен id и хотя бы одно из полей percent/enabled."),
       },
     },
     async ({ bids }) => {
       try {
         for (const b of bids) {
           if (b.percent === undefined && b.enabled === undefined) {
-            return fail("Each item needs percent and/or enabled.");
+            return fail("В каждом элементе нужен percent и/или enabled.");
           }
         }
         const BidModifiers = bids.map((b) =>
@@ -200,11 +200,11 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
   server.registerTool(
     "delete_bid_modifiers",
     {
-      title: "Delete bid modifiers",
+      title: "Удалить корректировки ставок",
       annotations: WRITE_DELETE,
-      description: "Deletes bid modifiers by id (bidmodifiers/delete).",
+      description: "Удаляет корректировки ставок по id (bidmodifiers/delete).",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("Bid modifier ids to delete."),
+        ids: z.array(z.number().int()).min(1).describe("Id корректировок, которые нужно удалить."),
       },
     },
     async ({ ids }) => {

@@ -17,15 +17,15 @@ export function registerAccountTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "get_account_info",
     {
-      title: "Get account info",
+      title: "Данные аккаунта",
       annotations: READ_ONLY,
       description:
-        "Returns information about the current advertiser account (login, currency, type, country) using the Yandex Direct `clients` service.",
+        "Возвращает данные текущего аккаунта рекламодателя (логин, валюта, тип, страна) через сервис `clients` Яндекс Директа.",
       inputSchema: {
         fieldNames: z
           .array(z.string())
           .optional()
-          .describe("Client fields to return. Defaults to a common set."),
+          .describe("Какие поля клиента вернуть. По умолчанию — типовой набор."),
       },
     },
     async ({ fieldNames }) => {
@@ -43,15 +43,15 @@ export function registerAccountTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "get_balance",
     {
-      title: "Get account balance",
+      title: "Баланс аккаунта",
       annotations: READ_ONLY,
       description:
-        "Returns the shared-account balance and finance fields (Amount, AmountAvailableForTransfer, Currency, Discount, AccountID) via the legacy Live v4 AccountManagement service — the only Yandex Direct API that exposes balance (v5 has no finance method). Amount is a string in account CURRENCY UNITS (not micros); a negative Amount means the account is in debt. Defaults to the token's own account; pass logins to target specific shared accounts.",
+        "Возвращает баланс общего счёта и финансовые поля (Amount, AmountAvailableForTransfer, Currency, Discount, AccountID) через устаревший сервис AccountManagement Live v4 — единственный API Яндекс Директа, который отдаёт баланс (в v5 финансового метода нет). Amount — строка в ВАЛЮТЕ АККАУНТА (не в микроединицах); отрицательный Amount означает задолженность. По умолчанию — собственный аккаунт токена; чтобы получить конкретные общие счета, передать logins.",
       inputSchema: {
         logins: z
           .array(z.string())
           .optional()
-          .describe("Account logins to fetch. Defaults to the token's own account."),
+          .describe("Логины аккаунтов, по которым нужны данные. По умолчанию — собственный аккаунт токена."),
       },
     },
     async ({ logins }) => {
@@ -71,17 +71,17 @@ export function registerAccountTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "get_quota",
     {
-      title: "Get API quota",
+      title: "Квота API",
       annotations: READ_ONLY,
       description:
-        "Returns today's API points quota (spent / rest / limit) from the Units header, so you can avoid hitting the daily limit.",
+        "Возвращает сегодняшнюю квоту баллов API (потрачено / осталось / лимит) из заголовка Units — чтобы не упереться в дневной лимит.",
       inputSchema: {},
     },
     async () => {
       try {
         await client.call("clients", "get", { FieldNames: ["Login"] });
         const units = client.units;
-        return ok(units ?? "Units quota was not reported by the API.");
+        return ok(units ?? "API не вернул квоту Units.");
       } catch (e) {
         return fail(e);
       }

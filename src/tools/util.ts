@@ -11,7 +11,7 @@ import { YandexDirectError } from "../types.js";
  * as `any`. A fresh object per field keeps each one inlined with its type+pattern.
  */
 export const isoDate = () =>
-  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be a date in YYYY-MM-DD format");
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата должна быть в формате YYYY-MM-DD");
 
 export function ok(data: unknown): CallToolResult {
   // Compact JSON (no indent): the consumer is an LLM, pretty-printing only burns tokens.
@@ -46,7 +46,7 @@ function collectObjectErrors(result: unknown): { failed: number; total: number; 
         out.failed++;
         for (const err of errors as ObjectError[]) {
           const code = err?.Code !== undefined ? `[${err.Code}] ` : "";
-          const message = err?.Message ?? "Unknown error";
+          const message = err?.Message ?? "Неизвестная ошибка";
           const details = err?.Details ? `: ${err.Details}` : "";
           out.messages.push(`${code}${message}${details}`);
         }
@@ -67,8 +67,8 @@ export function okOrPartial(result: unknown): CallToolResult {
   if (failed === 0) return { content: [{ type: "text", text: body }] };
   const header =
     failed === total
-      ? `All ${total} object(s) failed:`
-      : `${failed} of ${total} object(s) failed:`;
+      ? `Ошибки во всех объектах (${total}):`
+      : `Ошибки в ${failed} из ${total} объектов:`;
   const text = `${header}\n${messages.map((m) => `- ${m}`).join("\n")}\n\n${body}`;
   return { content: [{ type: "text", text }], isError: true };
 }
@@ -85,7 +85,7 @@ export function fail(err: unknown): CallToolResult {
   } else {
     message = String(err);
   }
-  return { content: [{ type: "text", text: `Error: ${message}` }], isError: true };
+  return { content: [{ type: "text", text: `Ошибка: ${message}` }], isError: true };
 }
 
 /** Converts an amount in account currency units to micros (1 unit = 1_000_000 micros). */

@@ -36,18 +36,21 @@ import { registerMediaTools } from "./tools/media.js";
  * every line here is paid for out of the client's context, so keep it dense.
  */
 const INSTRUCTIONS =
-  "Yandex Direct API v5 is one advertiser's PPC cabinet — search and network, not Metrica site " +
-  "analytics. New campaigns and ads can only be created as text ones, but objects of any type " +
-  "(smart, dynamic, CPM, unified performance) can still be listed, renamed, re-budgeted, paused, " +
-  "archived or deleted by id; anything else needs raw_request. No finance service: balance is " +
-  "read-only and nothing moves money. Every call spends the daily Units quota (get_quota shows the " +
-  "rest), and get_statistics starts an async Reports job with its own daily caps — ask for one wide " +
-  "period, not a loop per day or campaign. Money is in account currency units everywhere except " +
-  "raw_request, where it is micros. An agency token acts on the agency's own account unless " +
-  "YANDEX_DIRECT_LOGIN names the client — check that before trusting an empty list; a types filter " +
-  "without UNIFIED_CAMPAIGN hides current performance campaigns. Writes spend real money unless " +
-  "YANDEX_DIRECT_SANDBOX=true, deletes are irreversible, and a partly-failed batch still returns " +
-  "HTTP 200 — read the per-object errors, retry only what failed.";
+  "API Яндекс Директа v5 — это рекламный кабинет одного рекламодателя: поиск и сети, а не " +
+  "веб-аналитика Метрики. Новые кампании и объявления создаются только текстовыми, но объекты " +
+  "любого типа (смарт, динамические, CPM, единая перформанс-кампания) можно получать списком, " +
+  "переименовывать, менять им бюджет, останавливать, архивировать и удалять по id; всё остальное — " +
+  "через raw_request. Финансового сервиса нет: баланс доступен только на чтение, ни один " +
+  "инструмент не двигает деньги. Каждый вызов тратит дневную квоту Units (остаток показывает " +
+  "get_quota), " +
+  "а get_statistics запускает асинхронную задачу в сервисе Reports со своими дневными лимитами — " +
+  "запрашивать один широкий период, а не цикл по дням или кампаниям. Деньги везде в валюте " +
+  "аккаунта, кроме raw_request, где они в микроединицах. Агентский токен работает с собственным " +
+  "аккаунтом агентства, пока клиент не указан в YANDEX_DIRECT_LOGIN, — проверить это, прежде чем " +
+  "верить пустому списку; фильтр по типам без UNIFIED_CAMPAIGN скрывает актуальные " +
+  "перформанс-кампании. Запись тратит реальные деньги, если не задан YANDEX_DIRECT_SANDBOX=true, " +
+  "удаление необратимо, а частично неудачный пакет всё равно возвращает HTTP 200 — читать ошибки " +
+  "по каждому объекту и повторять только то, что не прошло.";
 
 /**
  * Loads the config, reporting the drop-off if it is missing. An unconfigured
@@ -60,7 +63,7 @@ async function loadConfigOrExit(telemetry: Telemetry): Promise<YandexDirectConfi
     return loadConfig();
   } catch (err) {
     if (!(err instanceof ConfigError)) throw err;
-    console.error(`Error: ${err.message}`);
+    console.error(`Ошибка: ${err.message}`);
     await telemetry.sendBlocking("startup_failed", { reason: err.reason });
     process.exit(1);
   }
@@ -104,11 +107,11 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
-    `mcp-yandex-direct running on stdio${config.sandbox ? " (sandbox)" : ""}`,
+    `mcp-yandex-direct работает на stdio${config.sandbox ? " (песочница)" : ""}`,
   );
 }
 
 main().catch((err) => {
-  console.error("Fatal error starting mcp-yandex-direct:", err);
+  console.error("Критическая ошибка при запуске mcp-yandex-direct:", err);
   process.exit(1);
 });

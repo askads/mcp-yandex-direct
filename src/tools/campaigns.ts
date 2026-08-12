@@ -47,25 +47,25 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
   server.registerTool(
     "list_campaigns",
     {
-      title: "List campaigns",
+      title: "Список кампаний",
       annotations: READ_ONLY,
       description:
-        "Lists campaigns with optional filtering by id, type, state and status. Monetary fields (DailyBudget.Amount and shared-account Funds — Sum, Balance, SumAvailableForTransfer, Spend) are returned in account currency units.",
+        "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Денежные поля (DailyBudget.Amount и Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта.",
       inputSchema: {
-        ids: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
-        types: z.array(z.enum(CAMPAIGN_TYPES)).optional().describe("Filter by campaign types."),
-        states: z.array(z.enum(CAMPAIGN_STATES)).optional().describe("Filter by campaign states."),
+        ids: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
+        types: z.array(z.enum(CAMPAIGN_TYPES)).optional().describe("Фильтр по типам кампаний."),
+        states: z.array(z.enum(CAMPAIGN_STATES)).optional().describe("Фильтр по состояниям кампаний."),
         statuses: z
           .array(z.enum(CAMPAIGN_STATUSES))
           .optional()
-          .describe("Filter by moderation statuses."),
-        fieldNames: z.array(z.string()).optional().describe("Campaign fields to return."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset (objects to skip)."),
+          .describe("Фильтр по статусам модерации."),
+        fieldNames: z.array(z.string()).optional().describe("Какие поля кампании вернуть."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
           .boolean()
           .optional()
-          .describe("Fetch all pages by following LimitedBy (ignores limit as a total cap)."),
+          .describe("Забрать все страницы, идя по LimitedBy (limit тогда не ограничивает общий объём)."),
       },
     },
     async ({ ids, types, states, statuses, fieldNames, limit, offset, autoPaginate }) => {
@@ -95,30 +95,30 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
   server.registerTool(
     "create_text_campaign",
     {
-      title: "Create text campaign",
+      title: "Создать текстовую кампанию",
       annotations: WRITE_CREATE,
       description:
-        "Creates a TextCampaign (Text & Image ads). Without biddingStrategy it defaults to manual search bids with the network off (Search HIGHEST_POSITION, Network SERVING_OFF); pass a full biddingStrategy {Search, Network} to use an auto-strategy or enable the network.",
+        "Создаёт кампанию TextCampaign (текстово-графические объявления). Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF); чтобы включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}.",
       inputSchema: {
-        name: z.string().min(1).describe("Campaign name."),
-        startDate: isoDate().describe("Start date, format YYYY-MM-DD."),
-        endDate: isoDate().optional().describe("End date, format YYYY-MM-DD."),
+        name: z.string().min(1).describe("Название кампании."),
+        startDate: isoDate().describe("Дата начала в формате YYYY-MM-DD."),
+        endDate: isoDate().optional().describe("Дата окончания в формате YYYY-MM-DD."),
         dailyBudgetAmount: z
           .number()
           .positive()
           .optional()
-          .describe("Daily budget in account currency units (converted to micros)."),
+          .describe("Дневной бюджет в валюте аккаунта (конвертируется в микроединицы)."),
         dailyBudgetMode: z.enum(["STANDARD", "DISTRIBUTED"]).optional(),
         biddingStrategy: z
           .record(z.any())
           .optional()
-          .describe("Full BiddingStrategy object {Search, Network}. Overrides the default."),
+          .describe("Полный объект BiddingStrategy {Search, Network}. Заменяет значение по умолчанию."),
       },
     },
     async ({ name, startDate, endDate, dailyBudgetAmount, dailyBudgetMode, biddingStrategy }) => {
       try {
         if (biddingStrategy && (!biddingStrategy.Search || !biddingStrategy.Network)) {
-          return fail("biddingStrategy must include both Search and Network strategy objects.");
+          return fail("biddingStrategy должен содержать оба объекта стратегии: Search и Network.");
         }
         const campaign = compact({
           Name: name,
@@ -142,13 +142,13 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
   server.registerTool(
     "campaign_action",
     {
-      title: "Campaign action",
+      title: "Действие с кампаниями",
       annotations: WRITE_DELETE,
       description:
-        "Performs a lifecycle action on campaigns by id: suspend, resume, archive, unarchive or delete.",
+        "Выполняет действие над кампаниями по id: suspend, resume, archive, unarchive или delete.",
       inputSchema: {
         action: z.enum(["suspend", "resume", "archive", "unarchive", "delete"]),
-        ids: z.array(z.number().int()).min(1).describe("Campaign ids to act on."),
+        ids: z.array(z.number().int()).min(1).describe("Id кампаний, к которым применить действие."),
       },
     },
     async ({ action, ids }) => {
@@ -166,23 +166,23 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
   server.registerTool(
     "update_campaign",
     {
-      title: "Update campaign",
+      title: "Обновить кампанию",
       annotations: WRITE_UPDATE,
-      description: "Updates a campaign's name, end date and/or daily budget (campaigns/update).",
+      description: "Обновляет название, дату окончания и/или дневной бюджет кампании (campaigns/update).",
       inputSchema: {
-        id: z.number().int().describe("Campaign id to update."),
-        name: z.string().min(1).optional().describe("New campaign name."),
-        endDate: isoDate().optional().describe("New end date, format YYYY-MM-DD."),
+        id: z.number().int().describe("Id кампании, которую нужно обновить."),
+        name: z.string().min(1).optional().describe("Новое название кампании."),
+        endDate: isoDate().optional().describe("Новая дата окончания в формате YYYY-MM-DD."),
         dailyBudgetAmount: z
           .number()
           .positive()
           .optional()
-          .describe("Daily budget in account currency units."),
+          .describe("Дневной бюджет в валюте аккаунта."),
         dailyBudgetMode: z.enum(["STANDARD", "DISTRIBUTED"]).optional(),
         negativeKeywords: z
           .array(z.string())
           .optional()
-          .describe("Replace the campaign's negative keywords; pass an empty array to clear them."),
+          .describe("Заменяет минус-фразы кампании; пустой массив очищает их."),
       },
     },
     async ({ id, name, endDate, dailyBudgetAmount, dailyBudgetMode, negativeKeywords }) => {
@@ -197,7 +197,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           NegativeKeywords: negativeKeywords !== undefined ? { Items: negativeKeywords } : undefined,
         });
         if (Object.keys(campaign).length === 1) {
-          return fail("Provide at least one field to update.");
+          return fail("Нужно указать хотя бы одно поле для обновления.");
         }
         const result = await client.call("campaigns", "update", { Campaigns: [campaign] });
         return okOrPartial(result);

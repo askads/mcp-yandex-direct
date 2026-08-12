@@ -48,7 +48,7 @@ test("the initialize result carries the server instructions", { timeout: 60_000 
     );
     // Guards against a placeholder ("TODO") slipping through: the text has to name
     // the API it is briefing the model about.
-    assert.match(instructions, /Yandex Direct/);
+    assert.match(instructions, /Яндекс Директ/);
   } finally {
     await client.close();
   }

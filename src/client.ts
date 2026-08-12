@@ -74,7 +74,7 @@ export class YandexDirectClient {
       return { res, text };
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        throw new Error(`Request to "${service}" timed out after ${this.timeoutMs}ms`);
+        throw new Error(`Запрос к "${service}" превысил таймаут ${this.timeoutMs} мс`);
       }
       throw err;
     } finally {
@@ -107,7 +107,7 @@ export class YandexDirectClient {
     const target = new URL(service.replace(/^\//, ""), this.base);
     if (target.origin !== new URL(this.base).origin) {
       throw new Error(
-        `service must be a relative API path (resolved to foreign origin ${target.origin})`,
+        `service должен быть относительным путём API (получился чужой origin ${target.origin})`,
       );
     }
     // Only read methods (get/has/check) are safe to auto-retry on a network failure or
@@ -148,7 +148,7 @@ export class YandexDirectClient {
           continue;
         }
         throw new Error(
-          `"${service}" failed with HTTP ${res.status} after ${attempt + 1} attempts: ${text.slice(0, 300)}`,
+          `"${service}" вернул HTTP ${res.status} (попыток: ${attempt + 1}): ${text.slice(0, 300)}`,
         );
       }
 
@@ -157,7 +157,7 @@ export class YandexDirectClient {
         data = text ? JSON.parse(text) : {};
       } catch {
         throw new Error(
-          `Invalid JSON response from "${service}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
+          `Некорректный JSON в ответе "${service}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
         );
       }
 
@@ -173,7 +173,7 @@ export class YandexDirectClient {
         // API actually returned, instead of returning `undefined` (which `JSON.stringify`s to
         // `undefined` downstream → invalid MCP content / a silent, cryptic failure).
         throw new Error(
-          `Unexpected response from "${service}" (HTTP ${res.status}) — no "result" field: ${text.slice(0, 500)}`,
+          `Неожиданный ответ "${service}" (HTTP ${res.status}) — нет поля "result": ${text.slice(0, 500)}`,
         );
       }
       return data.result as T;
@@ -219,7 +219,7 @@ export class YandexDirectClient {
           continue;
         }
         throw new Error(
-          `Live v4 "${method}" failed with HTTP ${res.status} after ${attempt + 1} attempts: ${text.slice(0, 300)}`,
+          `Live v4 "${method}" вернул HTTP ${res.status} (попыток: ${attempt + 1}): ${text.slice(0, 300)}`,
         );
       }
 
@@ -228,17 +228,17 @@ export class YandexDirectClient {
         data = text ? JSON.parse(text) : {};
       } catch {
         throw new Error(
-          `Invalid JSON from Live v4 "${method}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
+          `Некорректный JSON от Live v4 "${method}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
         );
       }
 
       if (data.error_code !== undefined) {
         const detail = data.error_detail ? `: ${data.error_detail}` : "";
-        throw new Error(`Live v4 "${method}" error [${data.error_code}] ${data.error_str ?? ""}${detail}`);
+        throw new Error(`Ошибка Live v4 "${method}": [${data.error_code}] ${data.error_str ?? ""}${detail}`);
       }
       if (data.data === undefined) {
         throw new Error(
-          `Unexpected Live v4 response for "${method}" (HTTP ${res.status}) — no "data" field: ${text.slice(0, 500)}`,
+          `Неожиданный ответ Live v4 для "${method}" (HTTP ${res.status}) — нет поля "data": ${text.slice(0, 500)}`,
         );
       }
       return data.data as T;
@@ -303,8 +303,8 @@ export class YandexDirectClient {
       m.LimitedBy = offset;
       m._truncated = true;
       m._truncatedNote =
-        `Stopped at the ${maxPages}-page cap; more objects remain (LimitedBy=${m.LimitedBy}). ` +
-        "Narrow the filter or paginate manually with offset to get the rest.";
+        `Остановлено на лимите страниц (${maxPages}); остались ещё объекты (LimitedBy=${m.LimitedBy}). ` +
+        "Сузить фильтр или пройти страницы вручную с offset, чтобы получить остальные.";
     }
     return merged as T;
   }
@@ -350,10 +350,10 @@ export class YandexDirectClient {
       } catch (e) {
         if (e instanceof YandexDirectError) throw e;
       }
-      throw new Error(`Report request failed (HTTP ${res.status}): ${text.slice(0, 500)}`);
+      throw new Error(`Запрос отчёта завершился ошибкой (HTTP ${res.status}): ${text.slice(0, 500)}`);
     }
 
-    throw new Error(`Report was not ready after ${maxPolls} polls (last HTTP ${lastStatus})`);
+    throw new Error(`Отчёт не был готов; опросов: ${maxPolls}, последний HTTP ${lastStatus}`);
   }
 }
 

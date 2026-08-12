@@ -9,20 +9,20 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "list_ad_groups",
     {
-      title: "List ad groups",
+      title: "Список групп объявлений",
       annotations: READ_ONLY,
       description:
-        "Lists ad groups. Provide campaignIds and/or ids — the Yandex Direct API requires at least one selection criterion.",
+        "Возвращает список групп объявлений. Нужно передать campaignIds и/или ids — API Яндекс Директа требует хотя бы один критерий отбора.",
       inputSchema: {
-        campaignIds: z.array(z.number().int()).optional().describe("Filter by campaign ids."),
-        ids: z.array(z.number().int()).optional().describe("Filter by ad group ids."),
-        fieldNames: z.array(z.string()).optional().describe("Ad group fields to return."),
-        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Max objects per page."),
-        offset: z.number().int().min(0).optional().describe("Pagination offset (objects to skip)."),
+        campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
+        ids: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
+        fieldNames: z.array(z.string()).optional().describe("Какие поля группы вернуть."),
+        limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
+        offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
           .boolean()
           .optional()
-          .describe("Fetch all pages by following LimitedBy (ignores limit as a total cap)."),
+          .describe("Забрать все страницы, идя по LimitedBy (limit тогда не ограничивает общий объём)."),
       },
     },
     async ({ campaignIds, ids, fieldNames, limit, offset, autoPaginate }) => {
@@ -50,16 +50,16 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "create_ad_group",
     {
-      title: "Create ad group",
+      title: "Создать группу объявлений",
       annotations: WRITE_CREATE,
-      description: "Creates an ad group inside a campaign with a target geo.",
+      description: "Создаёт группу объявлений в кампании с заданными регионами показа.",
       inputSchema: {
-        name: z.string().min(1).describe("Ad group name."),
-        campaignId: z.number().int().describe("Parent campaign id."),
+        name: z.string().min(1).describe("Название группы объявлений."),
+        campaignId: z.number().int().describe("Id родительской кампании."),
         regionIds: z
           .array(z.number().int())
           .min(1)
-          .describe("Target geo region ids, e.g. [225] for Russia."),
+          .describe("Id регионов показа, например [225] — Россия."),
       },
     },
     async ({ name, campaignId, regionIds }) => {
@@ -76,21 +76,21 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "update_ad_group",
     {
-      title: "Update ad group",
+      title: "Обновить группу объявлений",
       annotations: WRITE_UPDATE,
-      description: "Updates an ad group's name and/or target regions (adgroups/update).",
+      description: "Обновляет название и/или регионы показа группы объявлений (adgroups/update).",
       inputSchema: {
-        id: z.number().int().describe("Ad group id to update."),
-        name: z.string().min(1).optional().describe("New ad group name."),
+        id: z.number().int().describe("Id группы, которую нужно обновить."),
+        name: z.string().min(1).optional().describe("Новое название группы."),
         regionIds: z
           .array(z.number().int())
           .min(1)
           .optional()
-          .describe("New target geo region ids."),
+          .describe("Новые id регионов показа."),
         negativeKeywords: z
           .array(z.string())
           .optional()
-          .describe("Replace the ad group's negative keywords; pass an empty array to clear them."),
+          .describe("Заменяет минус-фразы группы; пустой массив очищает их."),
       },
     },
     async ({ id, name, regionIds, negativeKeywords }) => {
@@ -102,7 +102,7 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
           NegativeKeywords: negativeKeywords !== undefined ? { Items: negativeKeywords } : undefined,
         });
         if (Object.keys(adGroup).length === 1) {
-          return fail("Provide at least one field to update.");
+          return fail("Нужно указать хотя бы одно поле для обновления.");
         }
         const result = await client.call("adgroups", "update", { AdGroups: [adGroup] });
         return okOrPartial(result);
@@ -115,12 +115,12 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
   server.registerTool(
     "delete_ad_groups",
     {
-      title: "Delete ad groups",
+      title: "Удалить группы объявлений",
       annotations: WRITE_DELETE,
       description:
-        "Deletes ad groups by id (adgroups/delete). Deleting a group also removes its ads and keywords; this cannot be undone.",
+        "Удаляет группы объявлений по id (adgroups/delete). Вместе с группой удаляются её объявления и ключевые фразы; отменить это нельзя.",
       inputSchema: {
-        ids: z.array(z.number().int()).min(1).describe("Ad group ids to delete."),
+        ids: z.array(z.number().int()).min(1).describe("Id групп, которые нужно удалить."),
       },
     },
     async ({ ids }) => {

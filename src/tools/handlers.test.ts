@@ -122,7 +122,7 @@ test("explicit campaign filter with 0 rows fails loud (L3)", async () => {
   const res = await tools.get_statistics({ campaignIds: [123], dateRangeType: "LAST_7_DAYS" });
   assert.equal(res.isError, true);
   assert.equal(reports.length, 1); // запрос сделан; ошибка — по факту 0 строк
-  assert.match(res.content[0].text, /0 rows/);
+  assert.match(res.content[0].text, /0 строк/);
 });
 
 test("SEARCH_QUERY returns a computed aggregate (L2), not raw rows", async () => {

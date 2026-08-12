@@ -156,7 +156,7 @@ export function aggregateReport(
   // silently ignoring the filter (which would look like "no zero-conversion rows").
   if (opts.zeroConversionsOnly && !hasConversions) {
     throw new Error(
-      'zeroConversionsOnly needs conversion data — add "Conversions" to fieldNames.',
+      'zeroConversionsOnly требует данных о конверсиях — добавить "Conversions" в fieldNames.',
     );
   }
   const dimKey = primaryDimension(fieldNames);
@@ -254,13 +254,13 @@ export function aggregateReport(
     ...(anomalies.length ? { anomalies } : {}),
     note:
       rows.length === 0
-        ? "0 rows for this slice — the report ran fine but there is no search-query data " +
-          "for this campaign/period. This means the slice is EMPTY, not that the report is " +
-          "unavailable or access-restricted. Report it as empty and suggest checking the " +
-          "campaign id / date range; do not invent causes (campaign type, autotargeting, rights)."
-        : `totals are over all ${rows.length} row(s) (the full period, not a sample); ` +
-          `top lists ${top.length} row(s) by ${sortBy} ${order}` +
-          (filtered ? ` from ${detail.length} filtered row(s)` : "") +
-          "; tail rolls up the rest.",
+        ? "0 строк в этом срезе — отчёт построился, но данных по поисковым запросам за эту " +
+          "кампанию/период нет. Значит, срез ПУСТОЙ, а не отчёт недоступен или закрыт правами. " +
+          "Сообщить, что данных нет, и предложить проверить id кампании и период; " +
+          "не выдумывать причины (тип кампании, автотаргетинг, права доступа)."
+        : `итоги посчитаны по всем строкам (всего: ${rows.length}) — это весь период, а не выборка; ` +
+          `в top показано строк: ${top.length}, сортировка по ${sortBy} ${order}` +
+          (filtered ? ` — из ${detail.length} строк, прошедших фильтр` : "") +
+          "; в tail свёрнуто остальное.",
   };
 }
