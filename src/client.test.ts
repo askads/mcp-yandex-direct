@@ -550,6 +550,44 @@ test("call() retries a rate-limit code even for a write method (request not proc
   }
 });
 
+test("call() retries an HTTP 429 even for a write method (request not processed)", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) return new Response("slow down", { status: 429, headers: { "Retry-After": "0" } });
+    return new Response(JSON.stringify({ result: { AddResults: [{ Id: 1 }] } }), { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    const result = await client.call("campaigns", "add", {});
+    assert.deepEqual(result, { AddResults: [{ Id: 1 }] });
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() gives up after maxRetries on a persistent HTTP 429", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response("slow down", { status: 429 });
+  });
+  try {
+    const client = new YandexDirectClient({
+      token: "T",
+      lang: "ru",
+      sandbox: true,
+      retryBaseMs: 0,
+      maxRetries: 2,
+    });
+    await assert.rejects(() => client.call("campaigns", "get", {}), /HTTP 429/);
+    assert.equal(calls, 3); // initial + 2 retries
+  } finally {
+    mock.restore();
+  }
+});
+
 test("call() retries a network error for a read method, then succeeds", async () => {
   let calls = 0;
   const mock = mockFetch(() => {

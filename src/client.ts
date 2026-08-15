@@ -151,6 +151,18 @@ export class YandexDirectClient {
       const units = parseUnits(res.headers.get("Units"));
       if (units) this.latestUnits = units;
 
+      // HTTP 429 means the request was NOT processed, so (like error codes 506/52)
+      // it is safe to retry for ANY method, writes included.
+      if (res.status === 429) {
+        if (attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt, res));
+          continue;
+        }
+        throw new Error(
+          `"${service}" вернул HTTP 429 — превышена частота запросов (попыток: ${attempt + 1}): ${text.slice(0, 300)}`,
+        );
+      }
+
       // Gateway/server errors are transient — back off and retry, but only for
       // idempotent reads (a write may already have taken effect on the backend).
       if (res.status >= 500 && res.status < 600) {
