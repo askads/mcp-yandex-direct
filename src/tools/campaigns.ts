@@ -108,7 +108,12 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           .positive()
           .optional()
           .describe("Дневной бюджет в валюте аккаунта (конвертируется в микроединицы)."),
-        dailyBudgetMode: z.enum(["STANDARD", "DISTRIBUTED"]).optional(),
+        dailyBudgetMode: z
+          .enum(["STANDARD", "DISTRIBUTED"])
+          .optional()
+          .describe(
+            "Режим траты дневного бюджета: STANDARD — показы как можно быстрее, DISTRIBUTED — равномерно в течение дня. По умолчанию STANDARD.",
+          ),
         biddingStrategy: z
           .record(z.any())
           .optional()
@@ -168,7 +173,10 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
     {
       title: "Обновить кампанию",
       annotations: WRITE_UPDATE,
-      description: "Обновляет название, дату окончания и/или дневной бюджет кампании (campaigns/update).",
+      description:
+        "Обновляет название, дату окончания и/или дневной бюджет кампании (campaigns/update). " +
+        "API требует передавать режим бюджета (Mode) вместе с суммой, поэтому если dailyBudgetMode не задан, " +
+        "текущий режим кампании дочитывается через campaigns/get и сохраняется — смена суммы не меняет темп открутки.",
       inputSchema: {
         id: z.number().int().describe("Id кампании, которую нужно обновить."),
         name: z.string().min(1).optional().describe("Новое название кампании."),
@@ -178,7 +186,13 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           .positive()
           .optional()
           .describe("Дневной бюджет в валюте аккаунта."),
-        dailyBudgetMode: z.enum(["STANDARD", "DISTRIBUTED"]).optional(),
+        dailyBudgetMode: z
+          .enum(["STANDARD", "DISTRIBUTED"])
+          .optional()
+          .describe(
+            "Режим траты дневного бюджета: STANDARD — показы как можно быстрее, DISTRIBUTED — равномерно в течение дня. " +
+              "Если не задан, сохраняется текущий режим кампании.",
+          ),
         negativeKeywords: z
           .array(z.string())
           .optional()
@@ -187,12 +201,25 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
     },
     async ({ id, name, endDate, dailyBudgetAmount, dailyBudgetMode, negativeKeywords }) => {
       try {
+        let budgetMode = dailyBudgetMode;
+        if (dailyBudgetAmount && !budgetMode) {
+          // DailyBudget requires BOTH Amount and Mode, so Mode must be sent — but
+          // defaulting it to STANDARD used to silently flip a DISTRIBUTED campaign
+          // into spend-as-fast-as-possible. Read the current mode and re-send it.
+          const current = await client.call<{ Campaigns?: { DailyBudget?: { Mode?: string } }[] }>(
+            "campaigns",
+            "get",
+            { SelectionCriteria: { Ids: [id] }, FieldNames: ["DailyBudget"] },
+          );
+          const mode = current.Campaigns?.[0]?.DailyBudget?.Mode;
+          budgetMode = mode === "DISTRIBUTED" ? "DISTRIBUTED" : "STANDARD";
+        }
         const campaign = compact({
           Id: id,
           Name: name,
           EndDate: endDate,
           DailyBudget: dailyBudgetAmount
-            ? { Amount: toMicros(dailyBudgetAmount), Mode: dailyBudgetMode ?? "STANDARD" }
+            ? { Amount: toMicros(dailyBudgetAmount), Mode: budgetMode }
             : undefined,
           NegativeKeywords: negativeKeywords !== undefined ? { Items: negativeKeywords } : undefined,
         });
