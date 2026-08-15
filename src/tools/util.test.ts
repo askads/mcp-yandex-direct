@@ -5,6 +5,7 @@ import {
   DEFAULT_PAGE_LIMIT,
   buildPage,
   compact,
+  fail,
   isoDate,
   normalizeMoney,
   ok,
@@ -22,6 +23,22 @@ test("ok() emits valid text content even when data is undefined", () => {
   const result = ok(undefined);
   assert.equal(result.content[0].type, "text");
   assert.equal(textOf(result), "null");
+});
+
+test("fail() appends the cause message of a wrapped fetch error", () => {
+  // Node's fetch reports "fetch failed" and hides the real error in `cause`.
+  const err = new Error("fetch failed", { cause: new Error("connect ECONNREFUSED 1.2.3.4:443") });
+  const result = fail(err);
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /fetch failed \(причина: connect ECONNREFUSED 1\.2\.3\.4:443\)/);
+});
+
+test("fail() leaves messages without a cause untouched and stringifies non-Errors", () => {
+  assert.equal(textOf(fail(new Error("plain"))), "Ошибка: plain");
+  assert.equal(textOf(fail("строка")), "Ошибка: строка");
+  // A non-Error cause (e.g. a string) is ignored rather than blindly stringified.
+  const withOddCause = new Error("outer", { cause: "just a string" });
+  assert.equal(textOf(fail(withOddCause)), "Ошибка: outer");
 });
 
 test("okOrPartial reports success when every object has an Id", () => {

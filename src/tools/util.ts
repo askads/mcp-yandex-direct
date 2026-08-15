@@ -82,6 +82,12 @@ export function fail(err: unknown): CallToolResult {
   let message: string;
   if (err instanceof YandexDirectError || err instanceof Error) {
     message = err.message;
+    // Node's fetch wraps the real network error in `cause` (the top-level message is
+    // just "fetch failed") — without it the model has nothing actionable to react to.
+    const cause = (err as { cause?: unknown }).cause;
+    if (cause instanceof Error && cause.message && !message.includes(cause.message)) {
+      message += ` (причина: ${cause.message})`;
+    }
   } else {
     message = String(err);
   }
