@@ -20,6 +20,17 @@ export interface ReportOptions {
 /** API error codes that are transient and worth retrying: 52 = try again later, 506 = request rate exceeded. */
 const RETRYABLE_CODES = new Set([52, 506]);
 
+/** Hard row cap for getAll so a runaway full-export can't exhaust memory/context. */
+export const GETALL_MAX_ROWS = 100_000;
+/** Hard byte cap (serialized merged entities) for getAll — ~1 MB. */
+export const GETALL_MAX_BYTES = 1_000_000;
+
+/** Optional caps for {@link YandexDirectClient.getAll}. */
+export interface AutoPaginateCaps {
+  maxRows?: number;
+  maxBytes?: number;
+}
+
 /** Daily API points quota from the Units response header. */
 export interface Units {
   spent: number;
@@ -249,28 +260,33 @@ export class YandexDirectClient {
    * Runs a `get` request, following the LimitedBy cursor to fetch every page
    * and merging the entity array, so large accounts are not silently truncated.
    * Pages at DEFAULT_PAGE_LIMIT (10k) regardless of the per-tool `limit` clamp
-   * (which governs single-page calls only), so capacity is a DETERMINISTIC
-   * DEFAULT_PAGE_LIMIT × maxPages ≈ 1M objects — not path-dependent. maxPages is a
-   * safety stop for runaway loops, not a cost lever (context size is bounded
-   * downstream by the backend's per-result cap). If the cap IS hit, the merged
-   * result is flagged with `_truncated`/`_truncatedNote` and keeps LimitedBy, so a
-   * truncated full-export is explicit and never silent data loss.
+   * (which governs single-page calls only), so capacity is deterministic — not
+   * path-dependent. Bounded by maxPages (runaway-loop stop) AND by hard row/byte
+   * caps (GETALL_MAX_ROWS / GETALL_MAX_BYTES), because nothing downstream limits
+   * the result size and an unbounded full-export would flood the LLM context.
+   * Hitting any cap flags the merged result with `_truncated`/`_truncatedNote`
+   * and keeps LimitedBy as a resume cursor, so a truncated full-export is
+   * explicit and never silent data loss.
    */
   async getAll<T = unknown>(
     service: string,
     params: Record<string, unknown>,
     maxPages = 100,
+    caps: AutoPaginateCaps = {},
   ): Promise<T> {
     const basePage = (params.Page as Record<string, unknown> | undefined) ?? {};
     // autoPaginate ("fetch all") ALWAYS pages at the API max, independent of the
     // per-tool `limit` clamp (which governs single-page calls only). This keeps
-    // capacity deterministic — DEFAULT_PAGE_LIMIT × maxPages ≈ 1M — instead of
-    // path-dependent (a caller passing limit:1000 alongside autoPaginate must not
-    // silently shrink the export ceiling to 100k).
+    // capacity deterministic instead of path-dependent (a caller passing
+    // limit:1000 alongside autoPaginate must not silently shrink the export ceiling).
     const limit = DEFAULT_PAGE_LIMIT;
+    const maxRows = caps.maxRows ?? GETALL_MAX_ROWS;
+    const maxBytes = caps.maxBytes ?? GETALL_MAX_BYTES;
     let offset = Number(basePage.Offset ?? 0);
     let merged: Record<string, unknown> | undefined;
     let entityKey: string | undefined;
+    let bytes = 0;
+    let capNote: string | undefined;
 
     for (let page = 0; page < maxPages; page++) {
       const pageParams = { ...params, Page: { Limit: limit, Offset: offset } };
@@ -282,18 +298,32 @@ export class YandexDirectClient {
       } else if (entityKey && Array.isArray(result[entityKey])) {
         (merged[entityKey] as unknown[]).push(...(result[entityKey] as unknown[]));
       }
+      const batch = entityKey && Array.isArray(result[entityKey]) ? (result[entityKey] as unknown[]) : [];
+      if (batch.length) bytes += JSON.stringify(batch).length;
+      const rows = entityKey ? (merged[entityKey] as unknown[]).length : 0;
 
+      // Checked BEFORE the caps: a dataset that completes exactly on a cap boundary
+      // is complete, not truncated (nothing left to fetch → no "narrow the filter" advice).
       const limitedBy = result.LimitedBy;
       if (typeof limitedBy !== "number") {
         delete merged.LimitedBy;
         return merged as T;
       }
       offset = limitedBy;
+
+      // Hard caps: more pages remain, but stop before a runaway export exhausts
+      // memory or the downstream context.
+      if (rows >= maxRows || bytes >= maxBytes) {
+        capNote =
+          `Остановлено на лимите объёма autoPaginate (объектов: ${rows}, байт: ~${bytes}); ` +
+          `остались ещё объекты (LimitedBy=${offset}). ` +
+          "Сузить фильтр или пройти страницы вручную с offset, чтобы получить остальные.";
+        break;
+      }
     }
-    // Reached the page cap with LimitedBy still set → more objects remain. Make this
-    // LOUD: a bare LimitedBy number is easy for an LLM consumer to miss, and a silently
-    // truncated full-export is legitimate-data loss (the backend's char-cap only flags
-    // size, not pagination cutoff).
+    // Stopped on a cap (pages or rows/bytes) with LimitedBy still set → more objects
+    // remain. Make this LOUD: a bare LimitedBy number is easy for an LLM consumer to miss,
+    // and a silently truncated full-export is legitimate-data loss.
     if (merged && typeof (merged as Record<string, unknown>).LimitedBy === "number") {
       const m = merged as Record<string, unknown>;
       // The scalar LimitedBy was copied from the FIRST page and is now stale (it points
@@ -303,8 +333,9 @@ export class YandexDirectClient {
       m.LimitedBy = offset;
       m._truncated = true;
       m._truncatedNote =
+        capNote ??
         `Остановлено на лимите страниц (${maxPages}); остались ещё объекты (LimitedBy=${m.LimitedBy}). ` +
-        "Сузить фильтр или пройти страницы вручную с offset, чтобы получить остальные.";
+          "Сузить фильтр или пройти страницы вручную с offset, чтобы получить остальные.";
     }
     return merged as T;
   }

@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
 import { fail, isoDate, ok, READ_ONLY } from "./util.js";
-import { aggregateReport, countDataRows, MAX_TOP_N } from "./statistics.aggregate.js";
+import { aggregateReport, countDataRows, MAX_TOP_N, truncateTsv } from "./statistics.aggregate.js";
 
 export const REPORT_TYPES = [
   "ACCOUNT_PERFORMANCE_REPORT",
@@ -190,6 +190,18 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         if (campaignIds?.length && countDataRows(tsv, params.FieldNames) === 0) {
           return fail(
             `Отчёт вернул 0 строк для campaignIds [${campaignIds.join(", ")}] за ${range}. Проверить id кампаний и период — не расширять фильтр вслепую.`,
+          );
+        }
+        // Row/byte caps on the raw TSV: a wide report without a campaign filter can be
+        // megabytes — cut it EXPLICITLY (loud trailing note) instead of dumping it all
+        // into the context. Units and the daily Reports quota are already spent either
+        // way; the note steers the model to narrow the request, not to retry.
+        const cut = truncateTsv(tsv, params.FieldNames);
+        if (cut.truncated) {
+          return ok(
+            cut.text +
+              `\n[_truncated] Показано строк: ${cut.shownRows} из ${cut.totalRows} — ответ обрезан по лимиту размера. ` +
+              "Сузить период (dateFrom/dateTo), передать campaignIds или убрать лишние колонки из fieldNames.",
           );
         }
         return ok(tsv);

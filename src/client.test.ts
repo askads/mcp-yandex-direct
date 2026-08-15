@@ -258,6 +258,78 @@ test("getAll stops at maxPages and flags the truncation loudly", async () => {
   }
 });
 
+test("getAll stops at the byte cap and keeps a resume cursor", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response(
+      JSON.stringify({ result: { Campaigns: [{ Id: calls }], LimitedBy: calls } }),
+      { status: 200 },
+    );
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const result = await client.getAll<{
+      Campaigns: unknown[];
+      LimitedBy?: number;
+      _truncated?: boolean;
+      _truncatedNote?: string;
+    }>("campaigns", {}, 100, { maxBytes: 10 });
+    // The first page already serializes past 10 bytes → stop before page 2.
+    assert.equal(calls, 1);
+    assert.equal(result.Campaigns.length, 1);
+    assert.equal(result._truncated, true);
+    assert.match(result._truncatedNote ?? "", /лимите объёма/);
+    assert.equal(result.LimitedBy, 1); // cursor after the merged page, ready to resume
+  } finally {
+    mock.restore();
+  }
+});
+
+test("getAll stops at the row cap with more pages remaining", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response(
+      JSON.stringify({ result: { Campaigns: [{ Id: calls * 2 - 1 }, { Id: calls * 2 }], LimitedBy: calls * 2 } }),
+      { status: 200 },
+    );
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const result = await client.getAll<{
+      Campaigns: unknown[];
+      _truncated?: boolean;
+    }>("campaigns", {}, 100, { maxRows: 2 });
+    assert.equal(calls, 1);
+    assert.equal(result.Campaigns.length, 2);
+    assert.equal(result._truncated, true);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("getAll does NOT flag truncation when the dataset completes on the cap boundary", async () => {
+  // The final page has no LimitedBy: everything was fetched, so even if the caps are
+  // exceeded the result is complete — flagging it truncated would be a false alarm.
+  const mock = mockFetch(
+    () => new Response(JSON.stringify({ result: { Campaigns: [{ Id: 1 }, { Id: 2 }] } }), { status: 200 }),
+  );
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const result = await client.getAll<{ Campaigns: unknown[]; _truncated?: boolean }>(
+      "campaigns",
+      {},
+      100,
+      { maxRows: 1, maxBytes: 1 },
+    );
+    assert.equal(result.Campaigns.length, 2);
+    assert.equal(result._truncated, undefined);
+  } finally {
+    mock.restore();
+  }
+});
+
 test("report() returns TSV body on HTTP 200", async () => {
   const tsv = "Date\tClicks\n2026-01-01\t10\n";
   const mock = mockFetch(() => new Response(tsv, { status: 200 }));

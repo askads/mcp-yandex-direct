@@ -46,6 +46,69 @@ export const MAX_TOP_N = 100;
 const DEFAULT_TOP_N = 50;
 const COST_COVERAGE = 0.95; // adaptive cutoff: enough rows to cover 95% of detail Cost
 
+/**
+ * Hard caps for raw-TSV report output (the non-aggregated report types), mirroring
+ * mcp-yandex-metrica's STAT_MAX_ROWS/STAT_MAX_BYTES: without them a wide report
+ * (e.g. AD_PERFORMANCE over LAST_30_DAYS with no campaign filter) dumps the whole
+ * account into the LLM context. Truncation is explicit — the caller appends a
+ * loud note — never a silent cut.
+ */
+export const REPORT_MAX_ROWS = 100_000;
+export const REPORT_MAX_BYTES = 1_000_000;
+
+export interface TruncatedTsv {
+  text: string;
+  truncated: boolean;
+  shownRows: number;
+  totalRows: number;
+}
+
+/**
+ * Cuts a raw report TSV to the row/byte caps, keeping the column-header line
+ * (detected the same way as parseRows) outside the row count. Returns the
+ * original text untouched when everything fits.
+ */
+export function truncateTsv(
+  tsv: string,
+  fieldNames: string[],
+  maxRows = REPORT_MAX_ROWS,
+  maxBytes = REPORT_MAX_BYTES,
+): TruncatedTsv {
+  const kept: string[] = [];
+  let bytes = 0;
+  let shownRows = 0;
+  let totalRows = 0;
+  let sawHeader = false;
+  let truncated = false;
+  for (const line of tsv.split("\n")) {
+    if (!line.trim()) continue;
+    if (!sawHeader) {
+      sawHeader = true;
+      const cells = line.split("\t");
+      if (cells.length === fieldNames.length && fieldNames.every((f, i) => cells[i] === f)) {
+        kept.push(line);
+        bytes += line.length + 1;
+        continue;
+      }
+    }
+    totalRows++;
+    if (truncated) continue; // keep counting totalRows, stop keeping lines
+    if (shownRows >= maxRows || bytes + line.length + 1 > maxBytes) {
+      truncated = true;
+      continue;
+    }
+    kept.push(line);
+    bytes += line.length + 1;
+    shownRows++;
+  }
+  return {
+    text: truncated ? kept.join("\n") : tsv,
+    truncated,
+    shownRows,
+    totalRows,
+  };
+}
+
 export interface AggregateOptions {
   sortBy?: string;
   order?: "asc" | "desc";

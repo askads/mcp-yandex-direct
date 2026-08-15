@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_FIELDS_BY_TYPE, registerStatisticsTools, REPORT_TYPES } from "./statistics.js";
-import { aggregateReport } from "./statistics.aggregate.js";
+import { aggregateReport, truncateTsv } from "./statistics.aggregate.js";
 
 type Args = Record<string, unknown>;
 type Handler = (args: Args) => Promise<{ content: { text: string }[]; isError?: boolean }>;
@@ -167,6 +167,53 @@ test("aggregate: zeroConversionsOnly without Conversions in fieldNames throws a 
       }),
     /Conversions/,
   );
+});
+
+// ---- raw-TSV size caps ----
+
+const CAMPAIGN_FIELDS = ["CampaignId", "CampaignName", "Impressions", "Clicks", "Cost", "Ctr", "AvgCpc"];
+
+test("truncateTsv returns the text untouched when it fits the caps", () => {
+  const tsv = `${CAMPAIGN_HEADER}\n1\tA\t10\t2\t5\t20\t2.5\n2\tB\t20\t4\t9\t20\t2.2`;
+  const cut = truncateTsv(tsv, CAMPAIGN_FIELDS);
+  assert.equal(cut.truncated, false);
+  assert.equal(cut.text, tsv);
+  assert.equal(cut.totalRows, 2);
+  assert.equal(cut.shownRows, 2);
+});
+
+test("truncateTsv cuts at the row cap, keeps the header, counts total rows", () => {
+  const rows = Array.from({ length: 5 }, (_, i) => `${i}\tC${i}\t10\t2\t5\t20\t2.5`);
+  const cut = truncateTsv([CAMPAIGN_HEADER, ...rows].join("\n"), CAMPAIGN_FIELDS, 3);
+  assert.equal(cut.truncated, true);
+  assert.equal(cut.shownRows, 3);
+  assert.equal(cut.totalRows, 5);
+  const lines = cut.text.split("\n");
+  assert.equal(lines[0], CAMPAIGN_HEADER); // header preserved, not counted as a row
+  assert.equal(lines.length, 4);
+});
+
+test("truncateTsv cuts at the byte cap", () => {
+  const rows = Array.from({ length: 10 }, (_, i) => `${i}\tC${i}\t10\t2\t5\t20\t2.5`);
+  const oneRowBytes = rows[0].length + 1;
+  const cut = truncateTsv(rows.join("\n"), CAMPAIGN_FIELDS, 100_000, oneRowBytes * 2);
+  assert.equal(cut.truncated, true);
+  assert.ok(cut.shownRows < 10);
+  assert.equal(cut.totalRows, 10);
+});
+
+test("get_statistics appends a loud note when the raw TSV exceeds the byte cap", async () => {
+  // ~60k rows × ~20 bytes ≈ 1.2 MB > REPORT_MAX_BYTES — the handler must cut and say so.
+  const bigTsv = [
+    CAMPAIGN_HEADER,
+    ...Array.from({ length: 60_000 }, (_, i) => `${i}\tA\t10\t2\t5\t20\t2.5`),
+  ].join("\n");
+  const { tools } = harness(() => bigTsv);
+  const res = await tools.get_statistics({});
+  assert.equal(res.isError, undefined);
+  assert.match(res.content[0].text, /\[_truncated\]/);
+  assert.match(res.content[0].text, /из 60000/);
+  assert.ok(res.content[0].text.length < bigTsv.length);
 });
 
 // ---- get_statistics handler: date-range and empty-slice guards ----
