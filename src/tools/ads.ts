@@ -60,14 +60,20 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
     {
       title: "Создать текстовое объявление",
       annotations: WRITE_CREATE,
-      description: "Создаёт текстовое объявление (TextAd) в группе объявлений. Новые объявления создаются черновиками.",
+      description:
+        "Создаёт текстовое объявление (TextAd) в группе объявлений. Новые объявления создаются черновиками. " +
+        "TextAdAdd требует хотя бы одно из Href/TurboPageId/VCardId/BusinessId — этот инструмент передаёт посадочную " +
+        "страницу через href (обязателен); объявление с BusinessId вместо ссылки создаётся через raw_request.",
       inputSchema: {
         adGroupId: z.number().int().describe("Id родительской группы объявлений."),
         title: z.string().min(1).max(56).describe("Заголовок (Title 1), до 56 символов."),
         title2: z.string().max(30).optional().describe("Второй заголовок (Title 2), до 30 символов."),
         text: z.string().min(1).max(81).describe("Текст объявления, до 81 символа."),
-        href: z.string().optional().describe("URL посадочной страницы."),
-        mobile: z.boolean().optional().describe("Мобильное ли это объявление."),
+        href: z.string().min(1).describe("URL посадочной страницы (обязателен для TextAdAdd)."),
+        mobile: z
+          .boolean()
+          .default(false)
+          .describe("Мобильное ли это объявление. Поле в API устарело (значение принудительно NO), но остаётся обязательным."),
       },
     },
     async ({ adGroupId, title, title2, text, href, mobile }) => {
@@ -77,7 +83,10 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           Title2: title2,
           Text: text,
           Href: href,
-          Mobile: mobile === undefined ? undefined : mobile ? "YES" : "NO",
+          // Mobile is REQUIRED in TextAdAdd (deprecated: the API coerces it to NO).
+          // It must always be sent — compact() used to drop the unset field and
+          // ads/add rejected the object with a per-object error.
+          Mobile: mobile ? "YES" : "NO",
         });
         const ad = { AdGroupId: adGroupId, TextAd: textAd };
         const result = await client.call("ads", "add", { Ads: [ad] });

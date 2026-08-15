@@ -143,6 +143,36 @@ test("update_ad_group clears negative keywords with an empty array", async () =>
   assert.deepEqual(calls[0].params.AdGroups[0], { Id: 9, NegativeKeywords: { Items: [] } });
 });
 
+test("create_text_ad always sends the required Mobile flag", async () => {
+  // TextAdAdd requires Mobile (deprecated, coerced to NO by the API) — dropping the
+  // unset field used to make ads/add fail per-object on every default call.
+  const { calls, tools } = harness(registerAdTools);
+  const res = await tools.create_text_ad({
+    adGroupId: 5,
+    title: "T",
+    text: "X",
+    href: "https://example.com",
+  });
+  assert.equal(res.isError, undefined);
+  assert.equal(calls[0].method, "add");
+  assert.deepEqual(calls[0].params.Ads[0], {
+    AdGroupId: 5,
+    TextAd: { Title: "T", Text: "X", Href: "https://example.com", Mobile: "NO" },
+  });
+});
+
+test("create_text_ad maps mobile:true to Mobile YES", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  await tools.create_text_ad({
+    adGroupId: 5,
+    title: "T",
+    text: "X",
+    href: "https://example.com",
+    mobile: true,
+  });
+  assert.equal(calls[0].params.Ads[0].TextAd.Mobile, "YES");
+});
+
 test("update_text_ad updates only provided fields", async () => {
   const { calls, tools } = harness(registerAdTools);
   const res = await tools.update_text_ad({ id: 3, title: "Hi" });
