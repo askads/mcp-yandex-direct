@@ -240,14 +240,16 @@ test("get_statistics forces CUSTOM_DATE when both dates accompany a predefined r
   assert.equal(calls[0].SelectionCriteria.DateTo, "2026-01-31");
 });
 
-test("get_statistics fails when a campaign filter yields only the header row (0 data rows)", async () => {
+test("get_statistics answers a header-only report (0 data rows) with an empty-slice note", async () => {
   // Live Reports always echoes the column header, so tsv.trim() is never empty — the guard
-  // must count DATA rows, not test for an empty string.
+  // must count DATA rows, not test for an empty string. The empty slice is a SUCCESS with
+  // an explicit note (not isError): a paused campaign legitimately yields 0 rows.
   const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n`);
   const res = await tools.get_statistics({ campaignIds: [999] });
-  assert.equal(res.isError, true);
+  assert.equal(res.isError, undefined);
   assert.match(res.content[0].text, /0 строк для campaignIds \[999\]/);
-  assert.equal(calls.length, 1); // the report WAS requested; the failure is post-hoc
+  assert.match(res.content[0].text, /не расширять фильтр вслепую/);
+  assert.equal(calls.length, 1); // the report WAS requested; the note is post-hoc
 });
 
 test("get_statistics returns the raw TSV when a campaign filter has data rows", async () => {

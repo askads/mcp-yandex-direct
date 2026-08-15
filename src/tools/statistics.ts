@@ -182,14 +182,19 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
             }),
           );
         }
-        // L3 fail-loud: an explicit campaign filter that returns 0 DATA rows is almost always
-        // a wrong campaignId or period. The live Reports body ALWAYS carries the column-header
-        // row (skipColumnHeader is not sent), so tsv.trim() is never empty — count data rows
-        // (header detection reused from parseRows). An empty result nudges the model to "drop
-        // the filter and broaden"; an explicit error makes it fix the filter instead.
+        // A 0-row report for an explicit campaign filter is a legitimate empty slice
+        // (paused campaign, no traffic) — Reports cannot distinguish it from a wrong
+        // CampaignId. The live Reports body ALWAYS carries the column-header row
+        // (skipColumnHeader is not sent), so tsv.trim() is never empty — count data
+        // rows (header detection reused from parseRows). Answer with a calm success
+        // note (mirroring aggregateReport's empty-slice note): an isError here read
+        // as "the request failed, retry", and every retry burns a Reports task + Units.
         if (campaignIds?.length && countDataRows(tsv, params.FieldNames) === 0) {
-          return fail(
-            `Отчёт вернул 0 строк для campaignIds [${campaignIds.join(", ")}] за ${range}. Проверить id кампаний и период — не расширять фильтр вслепую.`,
+          return ok(
+            `0 строк для campaignIds [${campaignIds.join(", ")}] за ${range} — отчёт построился, ` +
+              "но показов и расходов в этом срезе нет. Либо кампании не откручивались за период, " +
+              "либо такого id не существует (Reports их не различает; при сомнении сверить id через list_campaigns). " +
+              "Не повторять запрос и не расширять фильтр вслепую.",
           );
         }
         // Row/byte caps on the raw TSV: a wide report without a campaign filter can be
