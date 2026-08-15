@@ -18,7 +18,7 @@ const ENTRY = fileURLToPath(new URL("./index.ts", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 /** Starts the server as a child process and returns a connected MCP client. */
-async function connectToServer(): Promise<Client> {
+async function connectToServer(env: Record<string, string> = {}): Promise<Client> {
   const transport = new StdioClientTransport({
     command: process.execPath,
     // cwd is the repo root so `--import tsx` resolves from node_modules.
@@ -27,10 +27,9 @@ async function connectToServer(): Promise<Client> {
     stderr: "ignore",
     env: {
       PATH: process.env.PATH ?? "",
-      // Any non-empty token gets past loadConfig; the handshake makes no API call.
-      YANDEX_DIRECT_TOKEN: "test-token",
       // A test run must not ping the usage endpoint on initialize.
       ASKADS_TELEMETRY: "0",
+      ...env,
     },
   });
   const client = new Client({ name: "instructions-smoke", version: "0.0.0" });
@@ -39,7 +38,8 @@ async function connectToServer(): Promise<Client> {
 }
 
 test("the initialize result carries the server instructions", { timeout: 60_000 }, async () => {
-  const client = await connectToServer();
+  // Any non-empty token gets past loadConfig; the handshake makes no API call.
+  const client = await connectToServer({ YANDEX_DIRECT_TOKEN: "test-token" });
   try {
     const instructions = client.getInstructions();
     assert.ok(
@@ -49,6 +49,39 @@ test("the initialize result carries the server instructions", { timeout: 60_000 
     // Guards against a placeholder ("TODO") slipping through: the text has to name
     // the API it is briefing the model about.
     assert.match(instructions, /Яндекс Директ/);
+    // A configured start must NOT carry the unconfigured warning.
+    assert.doesNotMatch(instructions, /ВНИМАНИЕ/);
+  } finally {
+    await client.close();
+  }
+});
+
+test("a server without a token still answers initialize, tools/list and a call", { timeout: 60_000 }, async () => {
+  // The regression this exists for: with no YANDEX_DIRECT_TOKEN the server used
+  // to exit(1) before the MCP handshake, so the client showed a dead server and
+  // the user never learned why. It must now start, list its tools, open the
+  // instructions with the fix, and answer a tool call with the credentials
+  // error instead of dropping the connection. No network: the credentials check
+  // rejects the call before fetch.
+  const client = await connectToServer(); // no YANDEX_DIRECT_TOKEN in the env
+  try {
+    const instructions = client.getInstructions() ?? "";
+    assert.match(instructions, /YANDEX_DIRECT_TOKEN/, "instructions must name the variable to set");
+    assert.match(instructions, /перезапустить сервер/, "and say the server needs a restart");
+    assert.match(instructions, /Яндекс Директ/, "the regular briefing must still follow the prefix");
+
+    const tools = (await client.listTools()).tools.map((t) => t.name);
+    assert.ok(tools.includes("list_campaigns"), "an unconfigured server must still list its tools");
+    assert.ok(tools.includes("get_account_info"));
+
+    const result = await client.callTool({ name: "get_account_info", arguments: {} });
+    assert.equal(result.isError, true, "the call must fail, not the connection");
+    const text = (result.content as { text?: string }[]).map((c) => c.text ?? "").join(" ");
+    assert.ok(
+      text.includes("Требуется переменная окружения YANDEX_DIRECT_TOKEN."),
+      `the historical startup text must reach the user verbatim, got: ${text}`,
+    );
+    assert.match(text, /перезапустите сервер/);
   } finally {
     await client.close();
   }

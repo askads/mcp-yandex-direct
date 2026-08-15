@@ -1,5 +1,5 @@
 import type { ApiError, YandexDirectConfig } from "./types.js";
-import { YandexDirectError } from "./types.js";
+import { CredentialsError, YandexDirectError } from "./types.js";
 import { DEFAULT_PAGE_LIMIT, isReadMethod } from "./tools/util.js";
 
 const PROD_BASE = "https://api.direct.yandex.com/json/v5/";
@@ -19,6 +19,18 @@ export interface ReportOptions {
 
 /** API error codes that are transient and worth retrying: 52 = try again later, 506 = request rate exceeded. */
 const RETRYABLE_CODES = new Set([52, 506]);
+
+/**
+ * Call-time text for a missing token — formerly the startup error that killed
+ * the process before the MCP handshake, preserved verbatim (pinned in
+ * client.test.ts). The message is the product: it is what the calling model
+ * relays to the user, so it names the variable to set and says the server needs
+ * a restart — there is no in-chat login for an OAuth token.
+ */
+const MISSING_TOKEN_TEXT = "Требуется переменная окружения YANDEX_DIRECT_TOKEN.";
+const MISSING_TOKEN_FIX =
+  " Это не сбой сети — повторный вызов не поможет: задайте переменную окружения " +
+  "в конфигурации MCP-клиента и перезапустите сервер.";
 
 /** Hard row cap for getAll so a runaway full-export can't exhaust memory/context. */
 export const GETALL_MAX_ROWS = 100_000;
@@ -57,6 +69,19 @@ export class YandexDirectClient {
   /** The most recent API points quota seen in a Units response header, if any. */
   get units(): Units | undefined {
     return this.latestUnits;
+  }
+
+  /**
+   * The OAuth token, or a CredentialsError when it is absent (degraded start).
+   * Called first in every request path (call/callV4/report) — BEFORE the request
+   * is built, retried or sent: a missing credential is a configuration problem,
+   * not transport trouble, so it must never enter a retry/backoff branch and
+   * fetch never fires without auth (pinned in client.test.ts).
+   */
+  private requireToken(): string {
+    const token = this.config.token;
+    if (!token) throw new CredentialsError(MISSING_TOKEN_TEXT + MISSING_TOKEN_FIX);
+    return token;
   }
 
   /** Backoff before a retry: honors Retry-After when present, else exponential (capped at 30s). */
@@ -109,6 +134,7 @@ export class YandexDirectClient {
     method: string,
     params: Record<string, unknown>,
   ): Promise<T> {
+    this.requireToken();
     // SSRF guard (matches the sibling MCP servers): resolve `service` against the API
     // base and reject anything that lands on a FOREIGN origin — an absolute URL
     // ("https://evil/x", "http://evil/x") or a protocol-relative/backslash form
@@ -211,6 +237,7 @@ export class YandexDirectClient {
    * (not micros) — callers must NOT run normalizeMoney on it.
    */
   async callV4<T = unknown>(method: string, param: Record<string, unknown>): Promise<T> {
+    const token = this.requireToken();
     // v4 multiplexes read and write behind one method (AccountManagement) via `Action`,
     // so idempotency keys off Action=Get. Only reads are retried on a transient network
     // error or 5xx; a write action (Deposit/Update/…) must never be blindly re-sent.
@@ -224,7 +251,7 @@ export class YandexDirectClient {
           {
             method: "POST",
             headers: { "Content-Type": "application/json; charset=utf-8" },
-            body: JSON.stringify({ method, token: this.config.token, locale: this.config.lang, param }),
+            body: JSON.stringify({ method, token, locale: this.config.lang, param }),
           },
           method,
         ));
@@ -354,6 +381,7 @@ export class YandexDirectClient {
 
   /** Requests a TSV statistics report, polling while Yandex generates it. */
   async report(params: Record<string, unknown>, opts: ReportOptions = {}): Promise<string> {
+    this.requireToken();
     const url = this.base + "reports";
     const headers = this.headers({
       processingMode: opts.processingMode ?? "auto",

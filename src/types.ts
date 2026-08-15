@@ -1,5 +1,6 @@
 export interface YandexDirectConfig {
-  token: string;
+  /** OAuth token; absent on a degraded (unconfigured) start — see loadConfig in config.ts. */
+  token?: string;
   login?: string;
   lang: string;
   sandbox: boolean;
@@ -16,6 +17,21 @@ export interface ApiError {
   error_string: string;
   error_detail?: string;
   request_id?: string;
+}
+
+/**
+ * A tool call attempted without the OAuth token. Thrown by the client BEFORE any
+ * request is built, retried or sent: a missing credential is a configuration
+ * problem, not transport trouble, so backoff would only burn time. The message
+ * is the product — it is what the calling model relays to the user, so it keeps
+ * the historical startup text verbatim and adds the fix (set the variable,
+ * restart the server).
+ */
+export class CredentialsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CredentialsError";
+  }
 }
 
 export class YandexDirectError extends Error {
