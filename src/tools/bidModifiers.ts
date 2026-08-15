@@ -161,34 +161,25 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
       title: "Изменить корректировки ставок",
       annotations: WRITE_UPDATE,
       description:
-        "Меняет процент существующих корректировок и/или включает и выключает их (bidmodifiers/set) по id корректировки.",
+        "Меняет процент существующих корректировок (bidmodifiers/set) по id корректировки. " +
+        "BidModifierSetItem принимает только Id и BidModifier; включить/выключить корректировку через API нельзя " +
+        "(метод bidmodifiers/toggle устарел и не поддерживается) — чтобы отключить корректировку, удалить её " +
+        "через delete_bid_modifiers.",
       inputSchema: {
         bids: z
           .array(
             z.object({
               id: z.number().int().describe("Id корректировки."),
-              percent: z.number().int().min(0).optional().describe("Новый процент корректировки."),
-              enabled: z.boolean().optional().describe("Включить или выключить корректировку."),
+              percent: z.number().int().min(0).describe("Новый процент корректировки."),
             }),
           )
           .min(1)
-          .describe("В каждом элементе нужен id и хотя бы одно из полей percent/enabled."),
+          .describe("В каждом элементе нужны id и percent."),
       },
     },
     async ({ bids }) => {
       try {
-        for (const b of bids) {
-          if (b.percent === undefined && b.enabled === undefined) {
-            return fail("В каждом элементе нужен percent и/или enabled.");
-          }
-        }
-        const BidModifiers = bids.map((b) =>
-          compact({
-            Id: b.id,
-            BidModifier: b.percent,
-            Enabled: b.enabled === undefined ? undefined : b.enabled ? "YES" : "NO",
-          }),
-        );
+        const BidModifiers = bids.map((b) => ({ Id: b.id, BidModifier: b.percent }));
         const result = await client.call("bidmodifiers", "set", { BidModifiers });
         return okOrPartial(result);
       } catch (e) {

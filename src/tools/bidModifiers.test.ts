@@ -93,17 +93,12 @@ test("add_bid_modifier requires at least one adjustment", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("set_bid_modifiers maps percent and enabled to BidModifier/Enabled", async () => {
+test("set_bid_modifiers sends only Id and BidModifier (the fields bidmodifiers/set accepts)", async () => {
+  // BidModifierSetItem has exactly Id + BidModifier; an extra Enabled key used to make
+  // the API reject even a valid percent change (toggle was a separate, now-removed method).
   const { calls, tools } = harness();
-  await tools.set_bid_modifiers({ bids: [{ id: 5, percent: 90, enabled: false }] });
-  assert.deepEqual(calls[0].params.BidModifiers[0], { Id: 5, BidModifier: 90, Enabled: "NO" });
-});
-
-test("set_bid_modifiers rejects an item with neither percent nor enabled", async () => {
-  const { calls, tools } = harness();
-  const res = await tools.set_bid_modifiers({ bids: [{ id: 5 }] });
-  assert.equal(res.isError, true);
-  assert.equal(calls.length, 0);
+  await tools.set_bid_modifiers({ bids: [{ id: 5, percent: 90 }] });
+  assert.deepEqual(calls[0].params.BidModifiers[0], { Id: 5, BidModifier: 90 });
 });
 
 test("delete_bid_modifiers passes ids in SelectionCriteria", async () => {
