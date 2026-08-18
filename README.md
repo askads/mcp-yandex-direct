@@ -55,7 +55,12 @@ claude mcp add --transport http yandex-direct https://mcp.askads.ru/mcp
 
 ### Полный доступ — локально через `npx`
 
-Для создания и изменения объектов нужен Node.js 20+. `npx` скачает сервер при первом запуске — отдельно устанавливать пакет не нужно. Токен передавать не обязательно: сервер умеет [подключаться к Директу прямо в диалоге](#доступ-к-рекламному-кабинету) после установки. Если у вас уже есть готовый токен (например, для CI), задайте его в `YANDEX_DIRECT_TOKEN`, как в примерах ниже.
+Для создания и изменения объектов нужен Node.js 20+. `npx` скачает сервер при первом запуске — отдельно устанавливать пакет не нужно. Получать токен заранее не требуется — подключение начинается прямо в диалоге:
+
+1. Добавьте сервер в AI-приложение — ниже открыт пример для Codex, остальные приложения собраны в сворачиваемые инструкции.
+2. Напишите: «Подключи Яндекс Директ» — ассистент проведёт через вход в Яндекс и покажет кабинет.
+
+Для CI и агентских установок — готовый токен и `YANDEX_DIRECT_LOGIN`, см. [Доступ к рекламному кабинету](#доступ-к-рекламному-кабинету).
 
 <details open>
 <summary><strong>Codex</strong></summary>
@@ -66,14 +71,12 @@ claude mcp add --transport http yandex-direct https://mcp.askads.ru/mcp
 
 1. Откройте **Settings → Plugins → MCP servers**.
 2. Нажмите **Add server**.
-3. Добавьте команду запуска `npx -y mcp-yandex-direct@latest` и переменную окружения `YANDEX_DIRECT_TOKEN` со своим токеном.
+3. Добавьте команду запуска `npx -y mcp-yandex-direct@latest`.
 
 **Через командную строку:**
 
 ```bash
-codex mcp add yandex-direct \
-  --env YANDEX_DIRECT_TOKEN=ваш_токен \
-  -- npx -y mcp-yandex-direct@latest
+codex mcp add yandex-direct -- npx -y mcp-yandex-direct@latest
 ```
 
 Проверьте подключение:
@@ -90,9 +93,7 @@ codex mcp list
 <summary><strong>Claude Code</strong></summary>
 
 ```bash
-claude mcp add --transport stdio --scope user \
-  --env YANDEX_DIRECT_TOKEN=ваш_токен \
-  yandex-direct -- npx -y mcp-yandex-direct@latest
+claude mcp add --transport stdio --scope user yandex-direct -- npx -y mcp-yandex-direct@latest
 ```
 
 Проверить подключение: `claude mcp list`.
@@ -109,10 +110,7 @@ claude mcp add --transport stdio --scope user \
   "mcpServers": {
     "yandex-direct": {
       "command": "npx",
-      "args": ["-y", "mcp-yandex-direct@latest"],
-      "env": {
-        "YANDEX_DIRECT_TOKEN": "ваш_токен"
-      }
+      "args": ["-y", "mcp-yandex-direct@latest"]
     }
   }
 }
@@ -132,10 +130,7 @@ claude mcp add --transport stdio --scope user \
   "mcpServers": {
     "yandex-direct": {
       "command": "npx",
-      "args": ["-y", "mcp-yandex-direct@latest"],
-      "env": {
-        "YANDEX_DIRECT_TOKEN": "ваш_токен"
-      }
+      "args": ["-y", "mcp-yandex-direct@latest"]
     }
   }
 }
@@ -146,7 +141,7 @@ claude mcp add --transport stdio --scope user \
 <details>
 <summary><strong>VS Code</strong></summary>
 
-В палитре команд выполните **MCP: Open User Configuration**. В открывшемся `mcp.json` добавьте сервер и защищённый ввод токена:
+В палитре команд выполните **MCP: Open User Configuration**. В открывшемся `mcp.json` добавьте сервер:
 
 ```json
 {
@@ -154,20 +149,9 @@ claude mcp add --transport stdio --scope user \
     "yandex-direct": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "mcp-yandex-direct@latest"],
-      "env": {
-        "YANDEX_DIRECT_TOKEN": "${input:yandex-direct-token}"
-      }
+      "args": ["-y", "mcp-yandex-direct@latest"]
     }
-  },
-  "inputs": [
-    {
-      "type": "promptString",
-      "id": "yandex-direct-token",
-      "description": "OAuth-токен Яндекс Директа",
-      "password": true
-    }
-  ]
+  }
 }
 ```
 
