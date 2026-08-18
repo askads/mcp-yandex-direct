@@ -43,15 +43,26 @@ test("opt-out sends nothing", () => {
 test("startup_failed carries the reason code and no client info", async () => {
   const sent: Sent[] = [];
   await new Telemetry("1.0.0", true, recordingFetch(sent)).sendBlocking("startup_failed", {
-    reason: "missing_folder_id",
+    reason: "missing_token",
   });
   const [ping] = sent;
   assert.ok(ping, "the drop-off ping must be sent");
   assert.equal(ping.body.event, "startup_failed");
-  assert.equal(ping.body.reason, "missing_folder_id");
-  // The process died before the handshake, so there is no client to report.
+  assert.equal(ping.body.reason, "missing_token");
+  // The ping fires before the handshake, so there is no client to report.
   assert.equal(ping.body.client_name, undefined);
   assert.equal(ping.body.tool, undefined);
+});
+
+test("unconfigured_start is a valid event and carries its reason", () => {
+  const sent: Sent[] = [];
+  new Telemetry("1.0.0", true, recordingFetch(sent)).send("unconfigured_start", {
+    reason: "missing_token",
+  });
+  const [ping] = sent;
+  assert.ok(ping, "the degraded-start ping must be sent");
+  assert.equal(ping.body.event, "unconfigured_start");
+  assert.equal(ping.body.reason, "missing_token");
 });
 
 test("sendBlocking waits for the ping to land; send does not", async () => {
@@ -65,14 +76,14 @@ test("sendBlocking waits for the ping to land; send does not", async () => {
   new Telemetry("1.0.0", true, slowFetch).send("server_start");
   assert.equal(landed, false, "send must not block its caller");
 
-  // process.exit() follows this await — returning early would drop the ping.
+  // A caller that exits right after must be able to await the ping in full.
   await new Telemetry("1.0.0", true, slowFetch).sendBlocking("startup_failed", {
     reason: "missing_token",
   });
   assert.equal(landed, true, "sendBlocking must not return before the request completes");
 });
 
-test("a dead endpoint still lets an unconfigured server exit", async () => {
+test("a dead endpoint is swallowed, never rethrown to the caller", async () => {
   const sent: Sent[] = [];
   await new Telemetry("1.0.0", true, recordingFetch(sent, true)).sendBlocking("startup_failed", {
     reason: "missing_token",

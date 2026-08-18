@@ -53,29 +53,64 @@ const INSTRUCTIONS =
   "по каждому объекту и повторять только то, что не прошло.";
 
 /**
- * Loads the config, reporting the drop-off if it is missing. An unconfigured
- * server dies before the MCP handshake, so this ping is the only trace such an
- * install ever leaves — and it has to be awaited, or process.exit() below would
- * kill the request in flight.
+ * Prepended to INSTRUCTIONS when the token is missing. The model reads this
+ * before it picks a tool, so an unconfigured session opens with the fix rather
+ * than with a failed call. There is no in-chat login for an OAuth token: it
+ * comes only from the environment, so the fix is the operator's — set the
+ * variable and restart the server.
  */
-async function loadConfigOrExit(telemetry: Telemetry): Promise<YandexDirectConfig> {
+const UNCONFIGURED_PREFIX =
+  "ВНИМАНИЕ: Яндекс Директ ещё не подключён — не задана переменная окружения " +
+  "YANDEX_DIRECT_TOKEN, поэтому любой вызов инструмента вернёт ошибку. Подключиться из диалога " +
+  "нельзя: оператор должен получить OAuth-токен Яндекс Директа " +
+  "(https://oauth.yandex.ru/authorize?response_type=token&client_id=c48790e11f0e48c588d2cd2d1b4bb92d — " +
+  "войти под аккаунтом с доступом к нужному кабинету), задать его в YANDEX_DIRECT_TOKEN в " +
+  "конфигурации MCP-клиента и перезапустить сервер. ";
+
+/**
+ * Loads the config without dying on a bad value. A server that exits here never
+ * completes the MCP handshake, so the user sees a red cross and no reason —
+ * instead the problem is carried into the session, where the model can read it
+ * and relay it. (A missing token is not an error at all — loadConfig leaves the
+ * field undefined; today it has no malformed-value checks either, so the catch
+ * guards future ones.)
+ */
+function loadConfigOrDegraded(telemetry: Telemetry): {
+  config: YandexDirectConfig;
+  problem?: ConfigError;
+} {
   try {
-    return loadConfig();
+    return { config: loadConfig() };
   } catch (err) {
     if (!(err instanceof ConfigError)) throw err;
-    console.error(`Ошибка: ${err.message}`);
-    await telemetry.sendBlocking("startup_failed", { reason: err.reason });
-    process.exit(1);
+    console.error(`Ошибка конфигурации: ${err.message}`);
+    // Fire-and-forget now that the process survives: the historical
+    // `startup_failed` funnel stays comparable, but nothing blocks startup.
+    telemetry.send("startup_failed", { reason: err.reason });
+    return {
+      // Degraded to "no credentials"; the non-credential settings the user did
+      // set are kept (same env reads as loadConfig).
+      config: {
+        lang: process.env.YANDEX_DIRECT_LANG || "ru",
+        sandbox: /^(1|true|yes)$/i.test(process.env.YANDEX_DIRECT_SANDBOX ?? ""),
+      },
+      problem: err,
+    };
   }
 }
 
 async function main(): Promise<void> {
   // Anonymous usage pings (ids/names/versions only, never data or arguments);
-  // opt out with ASKADS_TELEMETRY=0. Built before the config so a missing token
-  // can be reported; wired to the server before tools register.
+  // opt out with ASKADS_TELEMETRY=0. Built before the config so a config
+  // problem can be reported; wired to the server before tools register.
   const telemetry = new Telemetry(readVersion());
-  const config = await loadConfigOrExit(telemetry);
+  const { config, problem } = loadConfigOrDegraded(telemetry);
   const client = new YandexDirectClient(config);
+
+  // The token comes only from the environment, so this cannot change
+  // mid-session: an unconfigured start stays unconfigured until the operator
+  // sets the variable and restarts the server.
+  const connected = Boolean(config.token);
 
   const server = new McpServer(
     {
@@ -83,13 +118,21 @@ async function main(): Promise<void> {
       version: readVersion(),
     },
     // Rides along in the initialize result; the SDK carries it as a ServerOption.
-    { instructions: INSTRUCTIONS },
+    {
+      instructions: connected
+        ? INSTRUCTIONS
+        : UNCONFIGURED_PREFIX + (problem ? `Проблема конфигурации: ${problem.message} ` : "") + INSTRUCTIONS,
+    },
   );
 
   instrumentToolCalls(server, telemetry);
   server.server.oninitialized = () => {
     telemetry.setClientInfo(server.server.getClientVersion());
-    telemetry.send("server_start");
+    // Split on purpose: `server_start` keeps meaning "a usable install started",
+    // so the unconfigured case gets its own event instead of inflating that
+    // number. The reason vocabulary is the historical closed set.
+    if (connected) telemetry.send("server_start");
+    else telemetry.send("unconfigured_start", { reason: problem?.reason ?? "missing_token" });
   };
 
   registerAccountTools(server, client);
@@ -107,7 +150,9 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
-    `mcp-yandex-direct работает на stdio${config.sandbox ? " (песочница)" : ""}`,
+    `mcp-yandex-direct работает на stdio${config.sandbox ? " (песочница)" : ""}${
+      connected ? "" : " (не задан YANDEX_DIRECT_TOKEN — задайте переменную и перезапустите сервер)"
+    }`,
   );
 }
 

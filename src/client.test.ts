@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { YandexDirectClient, parseUnits } from "./client.js";
-import { YandexDirectError } from "./types.js";
+import { CredentialsError, YandexDirectError } from "./types.js";
 
 function mockFetch(handler: (url: string, init: RequestInit) => Response) {
   const original = globalThis.fetch;
@@ -615,6 +615,66 @@ test("call() does NOT retry a network error for a write method", async () => {
     const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
     await assert.rejects(() => client.call("campaigns", "add", {}), /ECONNRESET/);
     assert.equal(calls, 1);
+  } finally {
+    mock.restore();
+  }
+});
+
+// --- Missing credentials (degraded start) ---
+
+// The exact startup-era text, relayed verbatim at call time — pinned so a
+// reworded message does not silently change what the model tells the user.
+const MISSING_TOKEN_TEXT = "Требуется переменная окружения YANDEX_DIRECT_TOKEN.";
+
+/** Asserts the rejection is a CredentialsError carrying the exact text plus the fix. */
+function isCredentialsError(err: unknown): boolean {
+  assert.ok(err instanceof CredentialsError, "must be a CredentialsError");
+  assert.equal((err as Error).name, "CredentialsError");
+  const message = (err as Error).message;
+  assert.ok(
+    message.includes(MISSING_TOKEN_TEXT),
+    `message must carry the exact historical text, got: ${message}`,
+  );
+  assert.match(message, /перезапустите сервер/, "the fix (restart after setting the variable) must ride along");
+  return true;
+}
+
+test("call() without a token throws CredentialsError; fetch is never called", async () => {
+  const mock = mockFetch(() => new Response("{}", { status: 200 }));
+  try {
+    const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+    await assert.rejects(() => client.call("campaigns", "get", {}), isCredentialsError);
+    // Not transport trouble: the retry/backoff branch — and fetch itself —
+    // must never run for a configuration problem.
+    assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("callV4() without a token throws CredentialsError; fetch is never called", async () => {
+  const mock = mockFetch(() => new Response("{}", { status: 200 }));
+  try {
+    const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+    await assert.rejects(
+      () => client.callV4("AccountManagement", { Action: "Get" }),
+      isCredentialsError,
+    );
+    assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("report() without a token throws CredentialsError; fetch is never called", async () => {
+  const mock = mockFetch(() => new Response("{}", { status: 200 }));
+  try {
+    const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+    await assert.rejects(
+      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }),
+      isCredentialsError,
+    );
+    assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
   } finally {
     mock.restore();
   }

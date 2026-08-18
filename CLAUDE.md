@@ -17,20 +17,41 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
 
 ## Architecture
 
-- `src/client.ts` — HTTP client: timeout, retry/backoff, Units quota, `getAll` cursor pagination, report polling.
+- `src/client.ts` — HTTP client: timeout, retry/backoff, Units quota, `getAll` cursor pagination,
+  report polling. Every request path (`call`/`callV4`/`report`) first rejects a missing token
+  with `CredentialsError` (before building the request, the retries and fetch — the message is
+  the product: it keeps the historical startup text verbatim and names the fix).
 - `src/tools/*.ts` — one file per service, each exports `register<Name>Tools(server, client)`.
 - `src/tools/util.ts` — shared helpers (see conventions below).
-- `src/index.ts` — wires every `register*` into the McpServer.
+- `src/index.ts` — wires every `register*` into the McpServer. `loadConfigOrDegraded` starts
+  the server even on a config problem; without a token the initialize `instructions` open with
+  the unconfigured prefix (set `YANDEX_DIRECT_TOKEN` and restart).
 - `src/telemetry.ts` — anonymous usage pings (ids/names/versions only, never data or
   arguments; fire-and-forget, must never block or throw; opt-out `ASKADS_TELEMETRY=0`).
-  `startup_failed` is the exception: `sendBlocking` awaits it, because the caller
-  exits right after and a fire-and-forget ping would die in flight. Its `reason`
-  is a closed vocabulary (`missing_token`, …) — never a variable's name or value.
-- `src/config.ts` — env → config; throws `ConfigError` (with a `reason` code) instead
-  of exiting, so `index.ts` can report the drop-off before dying.
+  `server_start` means "a usable install started"; an install without a token sends
+  `unconfigured_start` instead. The `reason` is a closed vocabulary (`missing_token`, …) —
+  never a variable's name or value. `startup_failed` remains for a config unusable at load
+  time (malformed values), also fire-and-forget.
+- `src/config.ts` — env → config. A missing `YANDEX_DIRECT_TOKEN` is NOT an error: the field
+  stays `undefined`, the server starts degraded and the client raises `CredentialsError` at
+  call time. `ConfigError` (with a `reason` code) is reserved for malformed values, caught by
+  `loadConfigOrDegraded` in `index.ts` (no such checks exist today — the optional variables
+  fall back to defaults on junk).
 
 ## Conventions (do not break)
 
+- **Never exit because of configuration.** A server that dies before the MCP handshake leaves
+  the user with a red cross and no reason — the sibling Metrica server's telemetry showed that
+  state accounted for nearly every unconfigured install. A missing token is a survivable
+  state: start, answer `initialize`/`tools/list` (with the unconfigured prefix in the
+  instructions), and reject tool calls with `CredentialsError`. There are no login tools:
+  the token comes only from the environment, so the fix is the operator setting
+  `YANDEX_DIRECT_TOKEN` and restarting the server. `config.test.ts`, `client.test.ts` and
+  `index.test.ts` pin this.
+- **Credential failures are not transport failures.** `CredentialsError` is thrown before the
+  retry/backoff branches (and before fetch) in `call`/`callV4`/`report` — retrying it burns
+  seconds of backoff before the user sees the one message that helps. Pinned by "fetch must
+  not be called" assertions in `client.test.ts`.
 - **Money in account currency units, never micros.** Inputs/outputs are in units;
   convert at the boundary with `toMicros`/`fromMicros`, normalize read results with
   `normalizeMoney`. The only place micros leak is `raw_request` (documented).
