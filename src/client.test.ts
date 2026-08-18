@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { YandexDirectClient, parseUnits } from "./client.js";
-import { CredentialsError, YandexDirectError } from "./types.js";
+import { AuthRequiredError, NOT_CONNECTED_MESSAGE, TokenStore } from "./auth.js";
+import { writeCredentials } from "./credentials.js";
+import { YandexDirectError } from "./types.js";
 
 function mockFetch(handler: (url: string, init: RequestInit) => Response) {
   const original = globalThis.fetch;
@@ -620,64 +625,179 @@ test("call() does NOT retry a network error for a write method", async () => {
   }
 });
 
-// --- Missing credentials (degraded start) ---
+// --- Missing credentials (degraded start, in-chat login) ---
 
-// The exact startup-era text, relayed verbatim at call time — pinned so a
-// reworded message does not silently change what the model tells the user.
-const MISSING_TOKEN_TEXT = "Требуется переменная окружения YANDEX_DIRECT_TOKEN.";
+/**
+ * Runs `fn` with XDG_CONFIG_HOME pointed at a fresh temp dir, so a client built
+ * without a token resolves against an empty TokenStore — never the developer's
+ * real ~/.config/mcp-yandex-direct/credentials.json.
+ */
+async function withTempConfig<T>(fn: () => Promise<T>): Promise<T> {
+  const saved = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), "mcp-direct-client-"));
+  try {
+    return await fn();
+  } finally {
+    if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = saved;
+  }
+}
 
-/** Asserts the rejection is a CredentialsError carrying the exact text plus the fix. */
-function isCredentialsError(err: unknown): boolean {
-  assert.ok(err instanceof CredentialsError, "must be a CredentialsError");
-  assert.equal((err as Error).name, "CredentialsError");
-  const message = (err as Error).message;
-  assert.ok(
-    message.includes(MISSING_TOKEN_TEXT),
-    `message must carry the exact historical text, got: ${message}`,
-  );
-  assert.match(message, /перезапустите сервер/, "the fix (restart after setting the variable) must ride along");
+/** Asserts the rejection is an AuthRequiredError pinned to the exact product text. */
+function isAuthRequiredError(err: unknown): boolean {
+  assert.ok(err instanceof AuthRequiredError, "must be an AuthRequiredError");
+  assert.equal((err as Error).name, "AuthRequiredError");
+  // The message IS the product — it is the only text the model can relay, so a
+  // reworded version must not slip through: it has to name both fixes.
+  assert.equal((err as Error).message, NOT_CONNECTED_MESSAGE);
+  assert.match((err as Error).message, /start_login/, "the in-chat fix must be named");
+  assert.match((err as Error).message, /YANDEX_DIRECT_TOKEN/, "and the env fix too");
   return true;
 }
 
-test("call() without a token throws CredentialsError; fetch is never called", async () => {
-  const mock = mockFetch(() => new Response("{}", { status: 200 }));
-  try {
-    const client = new YandexDirectClient({ lang: "ru", sandbox: false });
-    await assert.rejects(() => client.call("campaigns", "get", {}), isCredentialsError);
-    // Not transport trouble: the retry/backoff branch — and fetch itself —
-    // must never run for a configuration problem.
-    assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
-  } finally {
-    mock.restore();
-  }
+test("call() without a token throws AuthRequiredError; fetch is never called", async () => {
+  await withTempConfig(async () => {
+    const mock = mockFetch(() => new Response("{}", { status: 200 }));
+    try {
+      // maxRetries is deliberately high: if the auth error were treated as a
+      // transport failure this would sit in backoff for seconds before answering.
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false, maxRetries: 5, retryBaseMs: 1000 });
+      const started = Date.now();
+      await assert.rejects(() => client.call("campaigns", "get", {}), isAuthRequiredError);
+      assert.ok(Date.now() - started < 500, "the answer must be immediate, not backed off");
+      // Not transport trouble: the retry/backoff branch — and fetch itself —
+      // must never run for a configuration problem.
+      assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
+    } finally {
+      mock.restore();
+    }
+  });
 });
 
-test("callV4() without a token throws CredentialsError; fetch is never called", async () => {
-  const mock = mockFetch(() => new Response("{}", { status: 200 }));
-  try {
-    const client = new YandexDirectClient({ lang: "ru", sandbox: false });
-    await assert.rejects(
-      () => client.callV4("AccountManagement", { Action: "Get" }),
-      isCredentialsError,
-    );
-    assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
-  } finally {
-    mock.restore();
-  }
+test("callV4() without a token throws AuthRequiredError; fetch is never called", async () => {
+  await withTempConfig(async () => {
+    const mock = mockFetch(() => new Response("{}", { status: 200 }));
+    try {
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+      await assert.rejects(
+        () => client.callV4("AccountManagement", { Action: "Get" }),
+        isAuthRequiredError,
+      );
+      assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
+    } finally {
+      mock.restore();
+    }
+  });
 });
 
-test("report() without a token throws CredentialsError; fetch is never called", async () => {
-  const mock = mockFetch(() => new Response("{}", { status: 200 }));
-  try {
-    const client = new YandexDirectClient({ lang: "ru", sandbox: false });
-    await assert.rejects(
-      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }),
-      isCredentialsError,
+test("report() without a token throws AuthRequiredError; fetch is never called", async () => {
+  await withTempConfig(async () => {
+    const mock = mockFetch(() => new Response("{}", { status: 200 }));
+    try {
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+      await assert.rejects(
+        () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }),
+        isAuthRequiredError,
+      );
+      assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test("a login mid-session takes effect on the very next call — no new client, no restart", async () => {
+  // The property the whole in-chat flow depends on: the token is resolved through
+  // the TokenStore per request, never cached on the client instance.
+  await withTempConfig(async () => {
+    const mock = mockFetch(() => new Response(JSON.stringify({ result: { Campaigns: [] } }), { status: 200 }));
+    try {
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+      await assert.rejects(() => client.call("campaigns", "get", {}), AuthRequiredError);
+      assert.equal(mock.calls.length, 0);
+
+      // What finish_login does: write the credentials file. Same process, same client.
+      writeCredentials({ access_token: "fresh-token", obtained_at: Date.now() });
+
+      const result = await client.call("campaigns", "get", {});
+      assert.deepEqual(result, { Campaigns: [] });
+      const headers = mock.calls[0].init.headers as Record<string, string>;
+      assert.equal(headers.Authorization, "Bearer fresh-token");
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test("call() re-mints a revoked stored token on error 53 and replays once", async () => {
+  await withTempConfig(async () => {
+    writeCredentials({ access_token: "dead", refresh_token: "rt", obtained_at: Date.now() });
+    let calls = 0;
+    const mock = mockFetch((url) => {
+      calls++;
+      if (url.includes("oauth.yandex.ru")) {
+        return new Response(JSON.stringify({ access_token: "reborn", refresh_token: "rt2" }), { status: 200 });
+      }
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({ error: { error_code: 53, error_string: "Authorization error" } }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ result: { Campaigns: [] } }), { status: 200 });
+    });
+    try {
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false, retryBaseMs: 0 });
+      const result = await client.call("campaigns", "get", {});
+      assert.deepEqual(result, { Campaigns: [] });
+      // API (53) → oauth refresh → API replay with the fresh token.
+      assert.equal(mock.calls.length, 3);
+      const replayHeaders = mock.calls[2].init.headers as Record<string, string>;
+      assert.equal(replayHeaders.Authorization, "Bearer reborn");
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test("call() does not try to refresh an env token on error 53", async () => {
+  await withTempConfig(async () => {
+    // An explicitly configured token is not ours to rotate: error 53 must surface.
+    const mock = mockFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: { error_code: 53, error_string: "Authorization error" } }),
+          { status: 200 },
+        ),
     );
-    assert.equal(mock.calls.length, 0, "fetch must not be called without credentials");
-  } finally {
-    mock.restore();
-  }
+    try {
+      const client = new YandexDirectClient({ token: "env-token", lang: "ru", sandbox: false });
+      await assert.rejects(() => client.call("campaigns", "get", {}), /\[53\]/);
+      assert.equal(mock.calls.length, 1, "no refresh, no replay for an env token");
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test("an injected TokenStore is shared: the client sees what finish_login saved", async () => {
+  await withTempConfig(async () => {
+    const mock = mockFetch(() => new Response(JSON.stringify({ result: {} }), { status: 200 }));
+    try {
+      // index.ts wires one TokenStore into both the auth tools and the client.
+      const tokens = new TokenStore(undefined);
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false }, tokens);
+      await assert.rejects(() => client.call("clients", "get", {}), AuthRequiredError);
+
+      tokens.save({ access_token: "saved-by-finish-login" });
+
+      await client.call("clients", "get", {});
+      const headers = mock.calls[0].init.headers as Record<string, string>;
+      assert.equal(headers.Authorization, "Bearer saved-by-finish-login");
+    } finally {
+      mock.restore();
+    }
+  });
 });
 
 test("YandexDirectError appends request_id to the message when present", () => {

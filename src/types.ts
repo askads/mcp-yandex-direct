@@ -19,21 +19,6 @@ export interface ApiError {
   request_id?: string;
 }
 
-/**
- * A tool call attempted without the OAuth token. Thrown by the client BEFORE any
- * request is built, retried or sent: a missing credential is a configuration
- * problem, not transport trouble, so backoff would only burn time. The message
- * is the product — it is what the calling model relays to the user, so it keeps
- * the historical startup text verbatim and adds the fix (set the variable,
- * restart the server).
- */
-export class CredentialsError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CredentialsError";
-  }
-}
-
 export class YandexDirectError extends Error {
   readonly code: number;
   readonly detail?: string;

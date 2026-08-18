@@ -18,14 +18,27 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
 ## Architecture
 
 - `src/client.ts` — HTTP client: timeout, retry/backoff, Units quota, `getAll` cursor pagination,
-  report polling. Every request path (`call`/`callV4`/`report`) first rejects a missing token
-  with `CredentialsError` (before building the request, the retries and fetch — the message is
-  the product: it keeps the historical startup text verbatim and names the fix).
-- `src/tools/*.ts` — one file per service, each exports `register<Name>Tools(server, client)`.
+  report polling. Every request path (`call`/`callV4`/`report`) resolves the token through the
+  `TokenStore` per request; a missing token raises `AuthRequiredError` before building the
+  request, the retries and fetch. An authorization error (code 53) on a stored token triggers
+  one silent refresh + replay per request.
+- `src/oauth.ts` — the OAuth flow: PKCE pair (S256), authorize URL against
+  `https://oauth.yandex.ru/verification_code`, code exchange and refresh. **No `client_secret`** —
+  this is a public client, and a secret inside an npm package would protect nothing. The pending
+  verifier lives in one module-level slot (one stdio server = one user); a second `start_login`
+  replaces it.
+- `src/credentials.ts` — `~/.config/mcp-yandex-direct/credentials.json`, mode `0600`. An
+  unparsable file reads as "not connected", never as an empty token.
+- `src/auth.ts` — `TokenStore`: resolves the token per request (env wins over stored), refreshes
+  on expiry, and raises `AuthRequiredError` whose *message* is the product — it is the only text
+  the user ever sees about a missing token, and it names both fixes (start_login, env variable).
+- `src/tools/*.ts` — one file per service, each exports `register<Name>Tools(server, client)`;
+  `src/tools/auth.ts` (auth_status, start_login, finish_login, logout) additionally takes the
+  `TokenStore`.
 - `src/tools/util.ts` — shared helpers (see conventions below).
 - `src/index.ts` — wires every `register*` into the McpServer. `loadConfigOrDegraded` starts
   the server even on a config problem; without a token the initialize `instructions` open with
-  the unconfigured prefix (set `YANDEX_DIRECT_TOKEN` and restart).
+  the unconfigured prefix (connect via `start_login`, or set `YANDEX_DIRECT_TOKEN` and restart).
 - `src/telemetry.ts` — anonymous usage pings (ids/names/versions only, never data or
   arguments; fire-and-forget, must never block or throw; opt-out `ASKADS_TELEMETRY=0`).
   `server_start` means "a usable install started"; an install without a token sends
@@ -33,25 +46,28 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
   never a variable's name or value. `startup_failed` remains for a config unusable at load
   time (malformed values), also fire-and-forget.
 - `src/config.ts` — env → config. A missing `YANDEX_DIRECT_TOKEN` is NOT an error: the field
-  stays `undefined`, the server starts degraded and the client raises `CredentialsError` at
-  call time. `ConfigError` (with a `reason` code) is reserved for malformed values, caught by
-  `loadConfigOrDegraded` in `index.ts` (no such checks exist today — the optional variables
-  fall back to defaults on junk).
+  stays `undefined`, the token is resolved per request (env → stored credentials) and the
+  client raises `AuthRequiredError` at call time. `ConfigError` (with a `reason` code) is
+  reserved for malformed values, caught by `loadConfigOrDegraded` in `index.ts` (no such
+  checks exist today — the optional variables fall back to defaults on junk).
 
 ## Conventions (do not break)
 
 - **Never exit because of configuration.** A server that dies before the MCP handshake leaves
   the user with a red cross and no reason — the sibling Metrica server's telemetry showed that
-  state accounted for nearly every unconfigured install. A missing token is a survivable
-  state: start, answer `initialize`/`tools/list` (with the unconfigured prefix in the
-  instructions), and reject tool calls with `CredentialsError`. There are no login tools:
-  the token comes only from the environment, so the fix is the operator setting
-  `YANDEX_DIRECT_TOKEN` and restarting the server. `config.test.ts`, `client.test.ts` and
-  `index.test.ts` pin this.
-- **Credential failures are not transport failures.** `CredentialsError` is thrown before the
+  state accounted for nearly every unconfigured install. Missing credentials are a survivable
+  state: start, serve the login tools, answer `initialize`/`tools/list` (with the unconfigured
+  prefix in the instructions), and reject data calls with `AuthRequiredError` — whose message
+  names both fixes: connect in the chat via `start_login`, or set `YANDEX_DIRECT_TOKEN` and
+  restart. `config.test.ts`, `client.test.ts` and `index.test.ts` pin this.
+- **Auth failures are not transport failures.** `AuthRequiredError` is rethrown before the
   retry/backoff branches (and before fetch) in `call`/`callV4`/`report` — retrying it burns
   seconds of backoff before the user sees the one message that helps. Pinned by "fetch must
   not be called" assertions in `client.test.ts`.
+- **The token is resolved per request, never cached on the client.** That is what makes
+  `finish_login` take effect mid-session without a client restart. env wins over stored, so
+  an explicitly configured install (and CI) behaves exactly as before; `logout` never touches
+  the env token.
 - **Money in account currency units, never micros.** Inputs/outputs are in units;
   convert at the boundary with `toMicros`/`fromMicros`, normalize read results with
   `normalizeMoney`. The only place micros leak is `raw_request` (documented).

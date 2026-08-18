@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { registerAuthTools } from "./auth.js";
 import { registerAccountTools } from "./account.js";
 import { registerCampaignTools } from "./campaigns.js";
 import { registerAdGroupTools } from "./adGroups.js";
@@ -28,6 +29,8 @@ function collectAnnotations(): Record<string, Annotations | undefined> {
     },
   };
   const registrars = [
+    // The third argument (TokenStore) is only touched inside handlers, never at registration.
+    (server: unknown, client: unknown) => registerAuthTools(server as any, client as any, {} as any),
     registerAccountTools,
     registerCampaignTools,
     registerAdGroupTools,
@@ -62,6 +65,8 @@ test("read tools are read-only", () => {
     "list_keywords", "get_statistics", "get_regions", "get_dictionaries",
     "get_bid_modifiers", "get_sitelinks", "get_callouts", "get_vcards",
     "get_ad_images", "get_ad_videos", "get_creatives",
+    // The login flow: auth_status and start_login read/mint local state only.
+    "auth_status", "start_login",
   ];
   for (const name of readTools) {
     assert.equal(ANN[name]?.readOnlyHint, true, `${name} should be readOnly`);
@@ -78,6 +83,8 @@ test("delete, *_action and raw_request are flagged destructive", () => {
     "campaign_action", "ad_action", "keyword_action", "delete_ad_groups",
     "delete_bid_modifiers", "delete_sitelinks", "delete_callouts", "delete_vcards",
     "raw_request",
+    // logout deletes the stored credentials file.
+    "logout",
   ];
   for (const name of destructive) {
     assert.equal(ANN[name]?.readOnlyHint, false, `${name} should not be readOnly`);
@@ -89,6 +96,8 @@ test("update/set tools are idempotent, non-destructive writes", () => {
   const updates = [
     "update_campaign", "update_ad_group", "update_text_ad",
     "set_keyword_bids", "set_bid_modifiers",
+    // finish_login rewrites the credentials file; redeeming the same code twice is a no-op fail.
+    "finish_login",
   ];
   for (const name of updates) {
     assert.equal(ANN[name]?.readOnlyHint, false, `${name} should not be readOnly`);

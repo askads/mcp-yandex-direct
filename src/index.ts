@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { TokenStore } from "./auth.js";
 import { YandexDirectClient } from "./client.js";
 import { ConfigError, loadConfig } from "./config.js";
 import { instrumentToolCalls, Telemetry } from "./telemetry.js";
@@ -16,6 +17,7 @@ function readVersion(): string {
     return "0.0.0";
   }
 }
+import { registerAuthTools } from "./tools/auth.js";
 import { registerAccountTools } from "./tools/account.js";
 import { registerCampaignTools } from "./tools/campaigns.js";
 import { registerAdGroupTools } from "./tools/adGroups.js";
@@ -53,19 +55,16 @@ const INSTRUCTIONS =
   "по каждому объекту и повторять только то, что не прошло.";
 
 /**
- * Prepended to INSTRUCTIONS when the token is missing. The model reads this
+ * Prepended to INSTRUCTIONS when no token is available. The model reads this
  * before it picks a tool, so an unconfigured session opens with the fix rather
- * than with a failed call. There is no in-chat login for an OAuth token: it
- * comes only from the environment, so the fix is the operator's — set the
- * variable and restart the server.
+ * than with a failed call.
  */
 const UNCONFIGURED_PREFIX =
-  "ВНИМАНИЕ: Яндекс Директ ещё не подключён — не задана переменная окружения " +
-  "YANDEX_DIRECT_TOKEN, поэтому любой вызов инструмента вернёт ошибку. Подключиться из диалога " +
-  "нельзя: оператор должен получить OAuth-токен Яндекс Директа " +
-  "(https://oauth.yandex.ru/authorize?response_type=token&client_id=c48790e11f0e48c588d2cd2d1b4bb92d — " +
-  "войти под аккаунтом с доступом к нужному кабинету), задать его в YANDEX_DIRECT_TOKEN в " +
-  "конфигурации MCP-клиента и перезапустить сервер. ";
+  "ВНИМАНИЕ: Яндекс Директ ещё не подключён — токена нет, поэтому любой инструмент данных " +
+  "вернёт ошибку. Подключение делается прямо в диалоге и без перезапуска клиента: вызовите " +
+  "start_login, покажите пользователю ссылку, попросите войти под аккаунтом с доступом к нужному " +
+  "рекламному кабинету и прислать код подтверждения, затем передайте код в finish_login. " +
+  "Альтернатива — задать YANDEX_DIRECT_TOKEN в конфигурации MCP-клиента и перезапустить сервер. ";
 
 /**
  * Loads the config without dying on a bad value. A server that exits here never
@@ -105,12 +104,12 @@ async function main(): Promise<void> {
   // problem can be reported; wired to the server before tools register.
   const telemetry = new Telemetry(readVersion());
   const { config, problem } = loadConfigOrDegraded(telemetry);
-  const client = new YandexDirectClient(config);
+  const tokens = new TokenStore(config.token);
+  const client = new YandexDirectClient(config, tokens);
 
-  // The token comes only from the environment, so this cannot change
-  // mid-session: an unconfigured start stays unconfigured until the operator
-  // sets the variable and restarts the server.
-  const connected = Boolean(config.token);
+  // Resolved once, at startup, only to pick the instructions text: the token
+  // itself is re-read per request, so a login mid-session still takes effect.
+  const connected = tokens.hasToken();
 
   const server = new McpServer(
     {
@@ -135,6 +134,7 @@ async function main(): Promise<void> {
     else telemetry.send("unconfigured_start", { reason: problem?.reason ?? "missing_token" });
   };
 
+  registerAuthTools(server, client, tokens);
   registerAccountTools(server, client);
   registerCampaignTools(server, client);
   registerAdGroupTools(server, client);
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
   console.error(
     `mcp-yandex-direct работает на stdio${config.sandbox ? " (песочница)" : ""}${
-      connected ? "" : " (не задан YANDEX_DIRECT_TOKEN — задайте переменную и перезапустите сервер)"
+      connected ? "" : " (без токена — подключение через start_login)"
     }`,
   );
 }
