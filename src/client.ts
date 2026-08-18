@@ -1,5 +1,6 @@
+import { AuthRequiredError, TokenStore } from "./auth.js";
 import type { ApiError, YandexDirectConfig } from "./types.js";
-import { CredentialsError, YandexDirectError } from "./types.js";
+import { YandexDirectError } from "./types.js";
 import { DEFAULT_PAGE_LIMIT, isReadMethod } from "./tools/util.js";
 
 const PROD_BASE = "https://api.direct.yandex.com/json/v5/";
@@ -20,17 +21,8 @@ export interface ReportOptions {
 /** API error codes that are transient and worth retrying: 52 = try again later, 506 = request rate exceeded. */
 const RETRYABLE_CODES = new Set([52, 506]);
 
-/**
- * Call-time text for a missing token — formerly the startup error that killed
- * the process before the MCP handshake, preserved verbatim (pinned in
- * client.test.ts). The message is the product: it is what the calling model
- * relays to the user, so it names the variable to set and says the server needs
- * a restart — there is no in-chat login for an OAuth token.
- */
-const MISSING_TOKEN_TEXT = "Требуется переменная окружения YANDEX_DIRECT_TOKEN.";
-const MISSING_TOKEN_FIX =
-  " Это не сбой сети — повторный вызов не поможет: задайте переменную окружения " +
-  "в конфигурации MCP-клиента и перезапустите сервер.";
+/** API error code 53 = authorization error: the token itself is dead (expired, revoked, wrong). */
+const AUTH_ERROR_CODE = 53;
 
 /** Hard row cap for getAll so a runaway full-export can't exhaust memory/context. */
 export const GETALL_MAX_ROWS = 100_000;
@@ -58,12 +50,20 @@ export class YandexDirectClient {
   private readonly retryBaseMs: number;
   private latestUnits?: Units;
 
-  constructor(private readonly config: YandexDirectConfig) {
+  private readonly tokens: TokenStore;
+
+  constructor(
+    private readonly config: YandexDirectConfig,
+    tokens?: TokenStore,
+  ) {
     this.base = config.sandbox ? SANDBOX_BASE : PROD_BASE;
     this.v4Base = config.sandbox ? SANDBOX_V4_BASE : PROD_V4_BASE;
     this.timeoutMs = config.timeoutMs ?? 60_000;
     this.maxRetries = config.maxRetries ?? 3;
     this.retryBaseMs = config.retryBaseMs ?? 500;
+    // Default store keeps the old contract for callers that pass a plain config
+    // (tests, smoke): config.token wins, stored credentials are the fallback.
+    this.tokens = tokens ?? new TokenStore(config.token);
   }
 
   /** The most recent API points quota seen in a Units response header, if any. */
@@ -72,16 +72,20 @@ export class YandexDirectClient {
   }
 
   /**
-   * The OAuth token, or a CredentialsError when it is absent (degraded start).
-   * Called first in every request path (call/callV4/report) — BEFORE the request
-   * is built, retried or sent: a missing credential is a configuration problem,
-   * not transport trouble, so it must never enter a retry/backoff branch and
-   * fetch never fires without auth (pinned in client.test.ts).
+   * Refreshes the stored token after an authorization error. When the refresh
+   * itself fails (revoked in Yandex ID, network down), the actionable message
+   * surfaces instead of the original error 53.
    */
-  private requireToken(): string {
-    const token = this.config.token;
-    if (!token) throw new CredentialsError(MISSING_TOKEN_TEXT + MISSING_TOKEN_FIX);
-    return token;
+  private async refreshOrExplain(): Promise<void> {
+    try {
+      await this.tokens.refresh();
+    } catch (err) {
+      if (err instanceof AuthRequiredError) throw err;
+      throw new AuthRequiredError(
+        `Не удалось обновить токен Директа: ${err instanceof Error ? err.message : String(err)}. ` +
+          "Вызовите start_login и подключитесь заново.",
+      );
+    }
   }
 
   /** Backoff before a retry: honors Retry-After when present, else exponential (capped at 30s). */
@@ -118,9 +122,18 @@ export class YandexDirectClient {
     }
   }
 
-  private headers(extra?: Record<string, string>): Record<string, string> {
+  /**
+   * Resolved through the TokenStore per request, never cached on the instance:
+   * `finish_login` writes a new token to disk mid-session and the very next call
+   * has to pick it up. A missing token raises AuthRequiredError here — BEFORE
+   * the request is built, retried or sent: a missing credential is a
+   * configuration problem, not transport trouble, so it must never enter a
+   * retry/backoff branch and fetch never fires without auth (pinned in
+   * client.test.ts).
+   */
+  private async headers(extra?: Record<string, string>): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.config.token}`,
+      Authorization: `Bearer ${await this.tokens.getToken()}`,
       "Accept-Language": this.config.lang,
       "Content-Type": "application/json; charset=utf-8",
     };
@@ -134,7 +147,6 @@ export class YandexDirectClient {
     method: string,
     params: Record<string, unknown>,
   ): Promise<T> {
-    this.requireToken();
     // SSRF guard (matches the sibling MCP servers): resolve `service` against the API
     // base and reject anything that lands on a FOREIGN origin — an absolute URL
     // ("https://evil/x", "http://evil/x") or a protocol-relative/backslash form
@@ -152,6 +164,9 @@ export class YandexDirectClient {
     // so a blind retry could duplicate it. Rate-limit codes (429/506/52) mean the request
     // was NOT processed and are retried for any method (handled below).
     const idempotent = isReadMethod(method);
+    // A stored token can be revoked (or die early) long before its stated expiry,
+    // and only the API knows: one silent re-mint + replay per request, then give up.
+    let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       let res: Response;
       let text: string;
@@ -160,12 +175,16 @@ export class YandexDirectClient {
           target.toString(),
           {
             method: "POST",
-            headers: this.headers(),
+            headers: await this.headers(),
             body: JSON.stringify({ method, params }),
           },
           service,
         ));
       } catch (err) {
+        // "Not connected" is raised while building the auth header, inside this
+        // try — but it is not transport trouble: retrying burns the full backoff
+        // (seconds) before the user sees the one message that would help them.
+        if (err instanceof AuthRequiredError) throw err;
         // Network error or timeout: retry idempotent reads within budget, else rethrow.
         if (idempotent && attempt < this.maxRetries) {
           await delay(this.backoffMs(attempt));
@@ -215,6 +234,15 @@ export class YandexDirectClient {
           await delay(this.backoffMs(attempt, res));
           continue;
         }
+        // The API answers a dead stored token with code 53 (authorization error).
+        // Re-mint once and replay; the retry budget above is for transport trouble
+        // and must not be spent here.
+        if (data.error.error_code === AUTH_ERROR_CODE && !refreshed && this.tokens.canRefresh()) {
+          refreshed = true;
+          await this.refreshOrExplain();
+          attempt--;
+          continue;
+        }
         throw new YandexDirectError(data.error);
       }
       if (data.result === undefined) {
@@ -237,15 +265,18 @@ export class YandexDirectClient {
    * (not micros) — callers must NOT run normalizeMoney on it.
    */
   async callV4<T = unknown>(method: string, param: Record<string, unknown>): Promise<T> {
-    const token = this.requireToken();
     // v4 multiplexes read and write behind one method (AccountManagement) via `Action`,
     // so idempotency keys off Action=Get. Only reads are retried on a transient network
     // error or 5xx; a write action (Deposit/Update/…) must never be blindly re-sent.
     const idempotent = String(param.Action ?? "").toLowerCase() === "get";
+    let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       let res: Response;
       let text: string;
       try {
+        // Resolved per attempt, inside the guarded zone: a missing token raises
+        // AuthRequiredError before fetch, and a re-minted token is picked up on replay.
+        const token = await this.tokens.getToken();
         ({ res, text } = await this.fetchWithTimeout(
           this.v4Base,
           {
@@ -256,6 +287,8 @@ export class YandexDirectClient {
           method,
         ));
       } catch (err) {
+        // Not transport trouble — rethrow before the retry/backoff branch.
+        if (err instanceof AuthRequiredError) throw err;
         if (idempotent && attempt < this.maxRetries) {
           await delay(this.backoffMs(attempt));
           continue;
@@ -283,6 +316,14 @@ export class YandexDirectClient {
       }
 
       if (data.error_code !== undefined) {
+        // v4 answers a dead token with the same code 53 — one re-mint + replay,
+        // same as call(); the fresh token is re-resolved at the top of the loop.
+        if (data.error_code === AUTH_ERROR_CODE && !refreshed && this.tokens.canRefresh()) {
+          refreshed = true;
+          await this.refreshOrExplain();
+          attempt--;
+          continue;
+        }
         const detail = data.error_detail ? `: ${data.error_detail}` : "";
         throw new Error(`Ошибка Live v4 "${method}": [${data.error_code}] ${data.error_str ?? ""}${detail}`);
       }
@@ -381,23 +422,26 @@ export class YandexDirectClient {
 
   /** Requests a TSV statistics report, polling while Yandex generates it. */
   async report(params: Record<string, unknown>, opts: ReportOptions = {}): Promise<string> {
-    this.requireToken();
     const url = this.base + "reports";
-    const headers = this.headers({
+    const extraHeaders = {
       processingMode: opts.processingMode ?? "auto",
       returnMoneyInMicros: String(opts.returnMoneyInMicros ?? false),
       skipReportHeader: "true",
       skipReportSummary: "true",
-    });
+    };
     const maxPolls = opts.maxPolls ?? 10;
     let lastStatus = 0;
+    let refreshed = false;
 
     for (let attempt = 0; attempt < maxPolls; attempt++) {
+      // Headers are rebuilt per poll so the token is resolved through the
+      // TokenStore each time: a missing token raises AuthRequiredError before
+      // the first fetch, and a re-minted token is picked up on replay.
       const { res, text } = await this.fetchWithTimeout(
         url,
         {
           method: "POST",
-          headers,
+          headers: await this.headers(extraHeaders),
           body: JSON.stringify({ params }),
         },
         "reports",
@@ -417,9 +461,21 @@ export class YandexDirectClient {
 
       try {
         const parsed = JSON.parse(text) as { error?: ApiError };
+        // Reports answers a dead stored token with the same code 53 — one silent
+        // re-mint + replay, without spending the poll budget on it.
+        if (
+          parsed.error?.error_code === AUTH_ERROR_CODE &&
+          !refreshed &&
+          this.tokens.canRefresh()
+        ) {
+          refreshed = true;
+          await this.refreshOrExplain();
+          attempt--;
+          continue;
+        }
         if (parsed.error) throw new YandexDirectError(parsed.error);
       } catch (e) {
-        if (e instanceof YandexDirectError) throw e;
+        if (e instanceof YandexDirectError || e instanceof AuthRequiredError) throw e;
       }
       throw new Error(`Запрос отчёта завершился ошибкой (HTTP ${res.status}): ${text.slice(0, 500)}`);
     }

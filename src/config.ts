@@ -20,11 +20,11 @@ export class ConfigError extends Error {
  * Builds the client config from environment variables.
  *
  * A missing YANDEX_DIRECT_TOKEN is NOT an error here: the server starts anyway
- * and the check happens per tool call (CredentialsError in client.ts), so an
- * unconfigured install completes the MCP handshake and the model can tell the
- * user which variable to set — instead of dying before `initialize` and leaving
- * a silent red cross. There is no in-chat login for an OAuth token: the fix is
- * the operator setting the variable and restarting the server.
+ * and the token is resolved per request (env → stored credentials, see
+ * TokenStore in auth.ts), so an unconfigured install completes the MCP
+ * handshake and can log in from the chat (start_login) — instead of dying
+ * before `initialize` and leaving a silent red cross. The env variable stays
+ * as the alternative: set it and restart the server.
  *
  * The optional variables (LOGIN, LANG, SANDBOX, TIMEOUT_MS, MAX_RETRIES) are
  * lenient by design — an unparsable value falls back to its default, so
