@@ -44,13 +44,15 @@ test("two logins never reuse a verifier", () => {
 });
 
 test("the authorize URL asks for a code with S256 and the verification_code redirect", () => {
-  const url = new URL(buildAuthorizeUrl({ clientId: "cid", challenge: "chal", state: "st" }));
+  const url = new URL(buildAuthorizeUrl({ clientId: "cid", challenge: "chal" }));
   assert.equal(url.origin + url.pathname, "https://oauth.yandex.ru/authorize");
   assert.equal(url.searchParams.get("response_type"), "code");
   assert.equal(url.searchParams.get("client_id"), "cid");
   assert.equal(url.searchParams.get("code_challenge"), "chal");
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
-  assert.equal(url.searchParams.get("state"), "st");
+  // No state: nothing ever redirects back to this process, so there is no
+  // callback to correlate — the code is tied to the login by the PKCE verifier.
+  assert.equal(url.searchParams.get("state"), null);
   // Without this redirect Yandex bounces to the app's registered callback and the
   // user never sees a code to paste back.
   assert.equal(url.searchParams.get("redirect_uri"), VERIFICATION_REDIRECT);
@@ -69,10 +71,12 @@ test("the pending login expires with the code it belongs to", () => {
 });
 
 test("starting a second login discards the first verifier", () => {
-  const first = startLogin(1_000);
-  const second = startLogin(2_000);
-  assert.notEqual(first.state, second.state);
-  assert.equal(pendingLogin(2_000)?.state, second.state);
+  startLogin(1_000);
+  const firstVerifier = pendingLogin(1_000)?.verifier;
+  startLogin(2_000);
+  const secondVerifier = pendingLogin(2_000)?.verifier;
+  assert.ok(firstVerifier && secondVerifier, "both logins must hold a verifier");
+  assert.notEqual(secondVerifier, firstVerifier);
   clearPendingLogin();
 });
 

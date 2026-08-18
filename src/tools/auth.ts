@@ -100,24 +100,41 @@ export function registerAuthTools(
         // Prove it works before telling the user it does: clients/get authenticates
         // against the real cabinet (and honors Client-Login for agencies), so a
         // wrong-account login surfaces here instead of as a bare error one call later.
-        const account = await client.call<{ Clients?: Array<{ Login?: string }> }>(
-          "clients",
-          "get",
-          { FieldNames: ["Login", "ClientId"] },
-        );
-        const login = account.Clients?.[0]?.Login;
+        // But the check failing is NOT the login failing — the token is already
+        // saved, and an isError here would send the user to redo a login that
+        // worked. Report the success and the caveat honestly instead.
+        try {
+          const account = await client.call<{ Clients?: Array<{ Login?: string }> }>(
+            "clients",
+            "get",
+            { FieldNames: ["Login", "ClientId"] },
+          );
+          const login = account.Clients?.[0]?.Login;
 
-        return ok({
-          connected: true,
-          accountLogin: login,
-          storedAt: tokens.status().path,
-          // Present only when Yandex granted less than SCOPE asked for — worth
-          // surfacing, because the failure it causes shows up later as a bare 53.
-          grantedScope: response.scope,
-          note:
-            "Подключение готово, инструменты Директа можно вызывать сразу. " +
-            "Покажите пользователю логин аккаунта: если это не тот кабинет, повторите start_login под нужным аккаунтом.",
-        });
+          return ok({
+            connected: true,
+            accountLogin: login,
+            storedAt: tokens.status().path,
+            // Present only when Yandex granted less than SCOPE asked for — worth
+            // surfacing, because the failure it causes shows up later as a bare 53.
+            grantedScope: response.scope,
+            note:
+              "Подключение готово, инструменты Директа можно вызывать сразу. " +
+              "Покажите пользователю логин аккаунта: если это не тот кабинет, повторите start_login под нужным аккаунтом.",
+          });
+        } catch (verifyError) {
+          const reason = verifyError instanceof Error ? verifyError.message : String(verifyError);
+          return ok({
+            connected: true,
+            storedAt: tokens.status().path,
+            grantedScope: response.scope,
+            note:
+              "Токен получен и сохранён, вход выполнен. " +
+              `Проверочный вызов к API не удался: ${reason}. ` +
+              "Скорее всего, подключение работает — попробуйте любой инструмент данных; " +
+              "если ошибка повторится, это проблема доступа токена, а не входа.",
+          });
+        }
       } catch (e) {
         return fail(e);
       }

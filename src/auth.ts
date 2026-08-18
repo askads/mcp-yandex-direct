@@ -102,7 +102,10 @@ export class TokenStore {
       clientId: oauthClientId(),
       fetchImpl: this.fetchImpl,
     });
-    return this.save(response);
+    // Yandex does not always rotate the refresh token; when the response omits
+    // it, keep the one just used — overwriting it with nothing would strand the
+    // user at the next expiry with a token that cannot be refreshed.
+    return this.save({ ...response, refresh_token: response.refresh_token ?? token });
   }
 
   /** True when a stored refresh token exists — i.e. a retry after an auth error is worth trying. */
