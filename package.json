@@ -1,6 +1,6 @@
 {
   "name": "mcp-yandex-direct",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "MCP server for the Yandex Direct API v5 — manage PPC campaigns, ad groups, ads, keywords and pull statistics from AI agents.",
   "mcpName": "io.github.askads/mcp-yandex-direct",
   "type": "module",
@@ -8,7 +8,8 @@
     "mcp-yandex-direct": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "npm-shrinkwrap.json"
   ],
   "engines": {
     "node": ">=20"
@@ -22,7 +23,8 @@
     "integration": "node --import tsx src/integration.ts",
     "test": "node --import tsx --test $(find src -name '*.test.ts')",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run typecheck && npm test"
+    "prepublishOnly": "npm run typecheck && npm test",
+    "version": "npm shrinkwrap && git add npm-shrinkwrap.json"
   },
   "keywords": [
     "mcp",

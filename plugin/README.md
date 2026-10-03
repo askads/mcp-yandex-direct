@@ -9,7 +9,7 @@ owner of the API it talks to.
 ## What the plugin does
 
 Enabling the plugin registers one MCP server named `yandex-direct`. Claude Code starts it by
-running `npx -y mcp-yandex-direct@1.5.1`, which downloads that exact published version of the
+running `npx -y mcp-yandex-direct@1.5.2`, which downloads that exact published version of the
 `mcp-yandex-direct` npm package and runs it on your machine. The version is pinned, so the plugin never
 pulls a newer release without an update to this plugin.
 
