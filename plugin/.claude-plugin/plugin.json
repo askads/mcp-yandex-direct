@@ -21,14 +21,15 @@
     "token": {
       "type": "string",
       "title": "Yandex Direct OAuth token",
-      "description": "OAuth token for the Yandex Direct API. Stored in your operating system's credential store, never in settings.json.",
+      "description": "OAuth token for the Yandex Direct API. Stored in your operating system's credential store, never in settings.json. Leave empty to sign in from the conversation instead.",
       "sensitive": true,
-      "required": true
+      "default": ""
     },
     "login": {
       "type": "string",
       "title": "Client login",
-      "description": "Client login to operate on when the token belongs to an agency account. Leave empty to use the token's own account."
+      "description": "Client login to operate on when the token belongs to an agency account. Leave empty to use the token's own account.",
+      "default": ""
     },
     "sandbox": {
       "type": "string",
