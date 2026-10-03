@@ -22,10 +22,16 @@ The plugin asks for its credentials through the plugin configuration dialog, not
 environment variables, so nothing has to be exported in your shell. Sensitive values go to
 your operating system's credential store rather than to `settings.json`.
 
-- **Yandex Direct OAuth token** (required) — OAuth token for the Yandex Direct API. Stored in your operating system's credential store, never in settings.json. Stored securely.
+- **Yandex Direct OAuth token** — OAuth token for the Yandex Direct API. Stored in your operating system's credential store, never in settings.json. Leave empty to sign in from the conversation instead. Stored securely.
 - **Client login** — Client login to operate on when the token belongs to an agency account. Leave empty to use the token's own account.
 - **Sandbox mode** — Set to true to run against the Yandex Direct sandbox, where writes do not spend real money. Leave as false for the live account.
 - **Anonymous telemetry** — Set to 0 to disable the anonymous usage telemetry the server sends by default. Leave as 1 to keep it on.
+
+Every option has a default, so the server also starts with nothing filled in. Leave the
+token empty and sign in from the conversation with the server's login tools: it opens a
+Yandex OAuth link, you paste the confirmation code back, and the token is saved locally.
+That is how the server authenticates in Cowork, which does not prompt for plugin
+configuration.
 
 ## Telemetry
 
