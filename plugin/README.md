@@ -2,8 +2,9 @@
 
 Work with a Yandex Direct account from Claude: campaigns, ad groups, ads, keywords, bids and report statistics.
 
-This plugin is an **unofficial, third-party client** published by AskAds. It is not
-affiliated with, endorsed by, or operated by the owner of the API it talks to.
+This plugin is an **unofficial, third-party client** maintained by gistrec, part of the
+AskAds line of MCP servers. It is not affiliated with, endorsed by, or operated by the
+owner of the API it talks to.
 
 ## What the plugin does
 
