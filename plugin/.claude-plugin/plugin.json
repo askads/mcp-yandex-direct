@@ -1,0 +1,60 @@
+{
+  "name": "mcp-yandex-direct",
+  "displayName": "Yandex Direct MCP",
+  "version": "1.5.1",
+  "description": "Work with a Yandex Direct account from Claude: campaigns, ad groups, ads, keywords, bids and report statistics.",
+  "author": {
+    "name": "AskAds",
+    "url": "https://askads.ru"
+  },
+  "homepage": "https://github.com/askads/mcp-yandex-direct#readme",
+  "repository": "https://github.com/askads/mcp-yandex-direct",
+  "license": "MIT",
+  "keywords": [
+    "yandex-direct",
+    "advertising",
+    "marketing",
+    "ppc"
+  ],
+  "userConfig": {
+    "token": {
+      "type": "string",
+      "title": "Yandex Direct OAuth token",
+      "description": "OAuth token for the Yandex Direct API. Stored in your operating system's credential store, never in settings.json.",
+      "sensitive": true,
+      "required": true
+    },
+    "login": {
+      "type": "string",
+      "title": "Client login",
+      "description": "Client login to operate on when the token belongs to an agency account. Leave empty to use the token's own account."
+    },
+    "sandbox": {
+      "type": "string",
+      "title": "Sandbox mode",
+      "description": "Set to true to run against the Yandex Direct sandbox, where writes do not spend real money. Leave as false for the live account.",
+      "default": "false"
+    },
+    "telemetry": {
+      "type": "string",
+      "title": "Anonymous telemetry",
+      "description": "Set to 0 to disable the anonymous usage telemetry the server sends by default. Leave as 1 to keep it on.",
+      "default": "1"
+    }
+  },
+  "mcpServers": {
+    "yandex-direct": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-yandex-direct@1.5.1"
+      ],
+      "env": {
+        "YANDEX_DIRECT_TOKEN": "${user_config.token}",
+        "YANDEX_DIRECT_LOGIN": "${user_config.login}",
+        "YANDEX_DIRECT_SANDBOX": "${user_config.sandbox}",
+        "ASKADS_TELEMETRY": "${user_config.telemetry}"
+      }
+    }
+  }
+}
