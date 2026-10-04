@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "yandex-direct": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-yandex-direct@latest"
+      ]
+    }
+  }
+}
