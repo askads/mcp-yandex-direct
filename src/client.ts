@@ -1,6 +1,6 @@
 import { AuthRequiredError, TokenStore } from "./auth.js";
 import type { ApiError, YandexDirectConfig } from "./types.js";
-import { YandexDirectError } from "./types.js";
+import { DirectUnavailableError, YandexDirectError } from "./types.js";
 import { DEFAULT_PAGE_LIMIT, isReadMethod } from "./tools/util.js";
 
 const PROD_BASE = "https://api.direct.yandex.com/json/v5/";
@@ -220,6 +220,17 @@ export class YandexDirectClient {
         );
       }
 
+      // An empty 2xx (HTTP 204 during a Yandex outage) means the request was NOT processed:
+      // same retry rule as a 5xx — reads within budget, writes never — then a dedicated
+      // error instead of the misleading "no result field".
+      if (isEmptySuccess(res, text)) {
+        if (idempotent && attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt, res));
+          continue;
+        }
+        throw new DirectUnavailableError(`"${service}"`, res.status, attempt + 1);
+      }
+
       let data: { result?: T; error?: ApiError };
       try {
         data = text ? JSON.parse(text) : {};
@@ -304,6 +315,14 @@ export class YandexDirectClient {
         throw new Error(
           `Live v4 "${method}" вернул HTTP ${res.status} (попыток: ${attempt + 1}): ${text.slice(0, 300)}`,
         );
+      }
+
+      if (isEmptySuccess(res, text)) {
+        if (idempotent && attempt < this.maxRetries) {
+          await delay(this.backoffMs(attempt, res));
+          continue;
+        }
+        throw new DirectUnavailableError(`Live v4 "${method}"`, res.status, attempt + 1);
       }
 
       let data: { data?: T; error_code?: number; error_str?: string; error_detail?: string };
@@ -453,7 +472,12 @@ export class YandexDirectClient {
       // 201/202: report still generating. 5xx: transient server error during
       // generation — the docs recommend retrying after retryIn rather than
       // treating it as fatal. Both are retried within the poll budget.
-      if (res.status === 201 || res.status === 202 || (res.status >= 500 && res.status < 600)) {
+      if (
+        res.status === 201 ||
+        res.status === 202 ||
+        res.status === 204 ||
+        (res.status >= 500 && res.status < 600)
+      ) {
         if (attempt === maxPolls - 1) break;
         await delay(pollDelayMs(res));
         continue;
@@ -480,11 +504,17 @@ export class YandexDirectClient {
       throw new Error(`Запрос отчёта завершился ошибкой (HTTP ${res.status}): ${text.slice(0, 500)}`);
     }
 
+    if (lastStatus === 204) throw new DirectUnavailableError('"reports"', lastStatus, maxPolls);
     throw new Error(`Отчёт не был готов; опросов: ${maxPolls}, последний HTTP ${lastStatus}`);
   }
 }
 
 /** Seconds to wait before re-polling a report, from the retryIn header (capped). */
+/** A 2xx with no body: Direct answers HTTP 204 to everything during an outage. */
+function isEmptySuccess(res: Response, text: string): boolean {
+  return res.status >= 200 && res.status < 300 && text.trim() === "";
+}
+
 function pollDelayMs(res: Response): number {
   const retryIn = Number(res.headers.get("retryIn") ?? 5);
   return Math.min(Number.isFinite(retryIn) ? retryIn : 5, 10) * 1000;
