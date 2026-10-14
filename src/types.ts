@@ -19,6 +19,32 @@ export interface ApiError {
   request_id?: string;
 }
 
+/**
+ * Stable prefix of every {@link DirectUnavailableError} message. Consumers (the askads
+ * backend, remote-MCP clients) match on it to tell a Yandex outage from a client bug.
+ */
+export const DIRECT_UNAVAILABLE_MARKER = "API Яндекс Директа недоступен";
+
+/**
+ * The API answered a 2xx with no body (since 2026-10-11 every Direct service, v5/v501/v4,
+ * returns HTTP 204 during an outage): the request was NOT processed on Yandex's side.
+ * Not a client error and not a malformed response — "retry later".
+ */
+export class DirectUnavailableError extends Error {
+  readonly status: number;
+  readonly attempts: number;
+
+  constructor(request: string, status: number, attempts: number) {
+    super(
+      `${DIRECT_UNAVAILABLE_MARKER}: на запрос ${request} сервер ответил HTTP ${status} без данных ` +
+        `(сбой на стороне Яндекса, запрос не обработан; попыток: ${attempts}). Повторите позже.`,
+    );
+    this.name = "DirectUnavailableError";
+    this.status = status;
+    this.attempts = attempts;
+  }
+}
+
 export class YandexDirectError extends Error {
   readonly code: number;
   readonly detail?: string;

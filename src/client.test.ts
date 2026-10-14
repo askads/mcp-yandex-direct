@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { YandexDirectClient, parseUnits } from "./client.js";
 import { AuthRequiredError, NOT_CONNECTED_MESSAGE, TokenStore } from "./auth.js";
 import { writeCredentials } from "./credentials.js";
-import { YandexDirectError } from "./types.js";
+import { DIRECT_UNAVAILABLE_MARKER, DirectUnavailableError, YandexDirectError } from "./types.js";
 
 function mockFetch(handler: (url: string, init: RequestInit) => Response) {
   const original = globalThis.fetch;
@@ -809,4 +809,88 @@ test("YandexDirectError appends request_id to the message when present", () => {
   assert.match(err.message, /\[54\] No units/);
   assert.match(err.message, /request_id: abc123/);
   assert.equal(err.requestId, "abc123");
+});
+
+test("call() retries an empty HTTP 204 for a read, then throws DirectUnavailableError", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response(null, { status: 204 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0, maxRetries: 2 });
+    await assert.rejects(
+      () => client.call("campaigns", "get", {}),
+      (err: unknown) =>
+        err instanceof DirectUnavailableError &&
+        err.message.startsWith(DIRECT_UNAVAILABLE_MARKER) &&
+        /"campaigns"/.test(err.message) &&
+        /HTTP 204/.test(err.message),
+    );
+    assert.equal(calls, 3);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() recovers when an empty HTTP 204 is followed by a result", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    if (calls === 1) return new Response(null, { status: 204 });
+    return new Response(JSON.stringify({ result: { ok: true } }), { status: 200 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    assert.deepEqual(await client.call("campaigns", "get", {}), { ok: true });
+    assert.equal(calls, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() does NOT retry an empty HTTP 204 for a write method", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response(null, { status: 204 });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, retryBaseMs: 0 });
+    await assert.rejects(() => client.call("campaigns", "add", {}), DirectUnavailableError);
+    assert.equal(calls, 1);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("callV4() maps an empty HTTP 204 to DirectUnavailableError", async () => {
+  const mock = mockFetch(() => new Response(null, { status: 204 }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false, retryBaseMs: 0, maxRetries: 0 });
+    await assert.rejects(
+      () => client.callV4("AccountManagement", { Action: "Get" }),
+      (err: unknown) => err instanceof DirectUnavailableError && /Live v4 "AccountManagement"/.test(err.message),
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
+test("report() throws DirectUnavailableError on a persistent HTTP 204", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return new Response(null, { status: 204, headers: { retryIn: "0" } });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(
+      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 3 }),
+      (err: unknown) => err instanceof DirectUnavailableError && /"reports"/.test(err.message),
+    );
+    assert.equal(calls, 3);
+  } finally {
+    mock.restore();
+  }
 });
