@@ -1,7 +1,13 @@
 import { AuthRequiredError, TokenStore } from "./auth.js";
 import type { ApiError, YandexDirectConfig } from "./types.js";
-import { DirectUnavailableError, YandexDirectError } from "./types.js";
+import {
+  DIRECT_RATE_LIMITED_MARKER,
+  DirectRateLimitError,
+  DirectUnavailableError,
+  YandexDirectError,
+} from "./types.js";
 import { DEFAULT_PAGE_LIMIT, isReadMethod } from "./tools/util.js";
+import { OperationCancelledError, currentOperation, throwIfCancelled, wait } from "./operation.js";
 
 const PROD_BASE = "https://api.direct.yandex.com/json/v5/";
 const SANDBOX_BASE = "https://api-sandbox.direct.yandex.com/json/v5/";
@@ -23,6 +29,29 @@ const RETRYABLE_CODES = new Set([52, 506]);
 
 /** API error code 53 = authorization error: the token itself is dead (expired, revoked, wrong). */
 const AUTH_ERROR_CODE = 53;
+
+/**
+ * API error code 56 = per-method request rate exceeded. The request was NOT processed, and the
+ * message states the limit in force ("не чаще чем 1 раз в 10 секунд"), which Yandex changes
+ * without notice — so the wait is read from the message, never hardcoded.
+ */
+const METHOD_RATE_CODE = 56;
+/** Consecutive code-56 answers tolerated per call before giving up. */
+const METHOD_RATE_MAX_RETRIES = 3;
+/** Total time one call may spend waiting out code 56. */
+const METHOD_RATE_MAX_WAIT_MS = 60_000;
+/** Window assumed when the code-56 message carries no parsable limit. */
+const METHOD_RATE_FALLBACK_MS = 10_000;
+/**
+ * Up to +20% on each code-56 wait: concurrent callers that hit the limit together (askads
+ * spawns a process per request) would otherwise all replay at the same instant and collide again.
+ */
+const METHOD_RATE_JITTER = 0.2;
+
+/** End-to-end deadline of one call() — all of its waits, backoffs included, must fit. */
+const CALL_DEADLINE_MS = 90_000;
+/** End-to-end deadline of one report(), polls and waits included. */
+const REPORT_DEADLINE_MS = 180_000;
 
 /** Hard row cap for getAll so a runaway full-export can't exhaust memory/context. */
 export const GETALL_MAX_ROWS = 100_000;
@@ -105,20 +134,36 @@ export class YandexDirectClient {
     url: string,
     init: RequestInit,
     service: string,
+    budget?: MethodRateBudget,
   ): Promise<{ res: Response; text: string }> {
+    // A cancelled tool call aborts the request too, so a client that gave up never leaves
+    // a live request (or the retry after it) behind.
+    const cancel = currentOperation().signal;
+    throwIfCancelled();
+    // Each attempt gets only what is left of the call's deadline.
+    const timeoutMs = budget ? Math.min(this.timeoutMs, budget.remainingMs) : this.timeoutMs;
+    if (timeoutMs <= 0) {
+      throw new Error(
+        `Запрос к "${service}" не уложился в ${Math.round(budget!.deadlineMs / 1000)} с — повторите позже`,
+      );
+    }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const onCancel = () => controller.abort();
+    cancel?.addEventListener("abort", onCancel, { once: true });
     try {
       const res = await fetch(url, { ...init, signal: controller.signal });
       const text = await res.text();
       return { res, text };
     } catch (err) {
+      if (cancel?.aborted) throw new OperationCancelledError();
       if (err instanceof Error && err.name === "AbortError") {
-        throw new Error(`Запрос к "${service}" превысил таймаут ${this.timeoutMs} мс`);
+        throw new Error(`Запрос к "${service}" превысил таймаут ${timeoutMs} мс`);
       }
       throw err;
     } finally {
       clearTimeout(timer);
+      cancel?.removeEventListener("abort", onCancel);
     }
   }
 
@@ -161,12 +206,13 @@ export class YandexDirectClient {
     }
     // Only read methods (get/has/check) are safe to auto-retry on a network failure or
     // 5xx: a write (add/update/delete/set) may have committed before the gateway error,
-    // so a blind retry could duplicate it. Rate-limit codes (429/506/52) mean the request
+    // so a blind retry could duplicate it. Rate-limit codes (429/506/52/56) mean the request
     // was NOT processed and are retried for any method (handled below).
     const idempotent = isReadMethod(method);
     // A stored token can be revoked (or die early) long before its stated expiry,
     // and only the API knows: one silent re-mint + replay per request, then give up.
     let refreshed = false;
+    const rate = new MethodRateBudget(service, CALL_DEADLINE_MS);
     for (let attempt = 0; ; attempt++) {
       let res: Response;
       let text: string;
@@ -179,14 +225,15 @@ export class YandexDirectClient {
             body: JSON.stringify({ method, params }),
           },
           service,
+          rate,
         ));
       } catch (err) {
         // "Not connected" is raised while building the auth header, inside this
         // try — but it is not transport trouble: retrying burns the full backoff
         // (seconds) before the user sees the one message that would help them.
-        if (err instanceof AuthRequiredError) throw err;
+        if (err instanceof AuthRequiredError || err instanceof OperationCancelledError) throw err;
         // Network error or timeout: retry idempotent reads within budget, else rethrow.
-        if (idempotent && attempt < this.maxRetries) {
+        if (idempotent && attempt < this.maxRetries && rate.fits(this.backoffMs(attempt))) {
           await delay(this.backoffMs(attempt));
           continue;
         }
@@ -199,7 +246,7 @@ export class YandexDirectClient {
       // HTTP 429 means the request was NOT processed, so (like error codes 506/52)
       // it is safe to retry for ANY method, writes included.
       if (res.status === 429) {
-        if (attempt < this.maxRetries) {
+        if (attempt < this.maxRetries && rate.fits(this.backoffMs(attempt, res))) {
           await delay(this.backoffMs(attempt, res));
           continue;
         }
@@ -211,7 +258,7 @@ export class YandexDirectClient {
       // Gateway/server errors are transient — back off and retry, but only for
       // idempotent reads (a write may already have taken effect on the backend).
       if (res.status >= 500 && res.status < 600) {
-        if (idempotent && attempt < this.maxRetries) {
+        if (idempotent && attempt < this.maxRetries && rate.fits(this.backoffMs(attempt, res))) {
           await delay(this.backoffMs(attempt, res));
           continue;
         }
@@ -224,7 +271,7 @@ export class YandexDirectClient {
       // same retry rule as a 5xx — reads within budget, writes never — then a dedicated
       // error instead of the misleading "no result field".
       if (isEmptySuccess(res, text)) {
-        if (idempotent && attempt < this.maxRetries) {
+        if (idempotent && attempt < this.maxRetries && rate.fits(this.backoffMs(attempt, res))) {
           await delay(this.backoffMs(attempt, res));
           continue;
         }
@@ -241,7 +288,18 @@ export class YandexDirectClient {
       }
 
       if (data.error) {
-        if (RETRYABLE_CODES.has(data.error.error_code) && attempt < this.maxRetries) {
+        // Code 56 has its own budget: the wait comes from the stated limit, not the backoff.
+        if (data.error.error_code === METHOD_RATE_CODE) {
+          await rate.waitOut(data.error);
+          attempt--;
+          continue;
+        }
+        rate.reset();
+        if (
+          RETRYABLE_CODES.has(data.error.error_code) &&
+          attempt < this.maxRetries &&
+          rate.fits(this.backoffMs(attempt, res))
+        ) {
           await delay(this.backoffMs(attempt, res));
           continue;
         }
@@ -299,7 +357,7 @@ export class YandexDirectClient {
         ));
       } catch (err) {
         // Not transport trouble — rethrow before the retry/backoff branch.
-        if (err instanceof AuthRequiredError) throw err;
+        if (err instanceof AuthRequiredError || err instanceof OperationCancelledError) throw err;
         if (idempotent && attempt < this.maxRetries) {
           await delay(this.backoffMs(attempt));
           continue;
@@ -451,8 +509,11 @@ export class YandexDirectClient {
     const maxPolls = opts.maxPolls ?? 10;
     let lastStatus = 0;
     let refreshed = false;
+    let polls = 0;
+    const rate = new MethodRateBudget("reports", REPORT_DEADLINE_MS);
 
     for (let attempt = 0; attempt < maxPolls; attempt++) {
+      polls++;
       // Headers are rebuilt per poll so the token is resolved through the
       // TokenStore each time: a missing token raises AuthRequiredError before
       // the first fetch, and a re-minted token is picked up on replay.
@@ -464,6 +525,7 @@ export class YandexDirectClient {
           body: JSON.stringify({ params }),
         },
         "reports",
+        rate,
       );
       lastStatus = res.status;
 
@@ -479,42 +541,158 @@ export class YandexDirectClient {
         (res.status >= 500 && res.status < 600)
       ) {
         if (attempt === maxPolls - 1) break;
-        await delay(pollDelayMs(res));
+        rate.reset();
+        // Once the API has stated a rate limit, polls never come faster than it allows,
+        // or every retryIn-paced poll would draw another code 56.
+        const pause = Math.max(pollDelayMs(res), rate.intervalMs);
+        if (!rate.fits(pause)) break;
+        const poll = attempt + 1;
+        await wait(
+          pause,
+          (left) => `Отчёт формируется в Яндекс Директе — опрос ${poll}/${maxPolls}, следующий через ${left} с`,
+        );
         continue;
       }
 
+      let parsed: { error?: ApiError } | undefined;
       try {
-        const parsed = JSON.parse(text) as { error?: ApiError };
+        parsed = JSON.parse(text) as { error?: ApiError };
+      } catch {
+        // Not JSON — falls through to the generic error below.
+      }
+      if (parsed?.error) {
+        // Code 56: the request was not processed — wait out the stated limit and replay,
+        // without spending the poll budget on it.
+        if (parsed.error.error_code === METHOD_RATE_CODE) {
+          await rate.waitOut(parsed.error);
+          attempt--;
+          continue;
+        }
+        rate.reset();
         // Reports answers a dead stored token with the same code 53 — one silent
         // re-mint + replay, without spending the poll budget on it.
-        if (
-          parsed.error?.error_code === AUTH_ERROR_CODE &&
-          !refreshed &&
-          this.tokens.canRefresh()
-        ) {
+        if (parsed.error.error_code === AUTH_ERROR_CODE && !refreshed && this.tokens.canRefresh()) {
           refreshed = true;
           await this.refreshOrExplain();
           attempt--;
           continue;
         }
-        if (parsed.error) throw new YandexDirectError(parsed.error);
-      } catch (e) {
-        if (e instanceof YandexDirectError || e instanceof AuthRequiredError) throw e;
+        throw new YandexDirectError(parsed.error);
       }
       throw new Error(`Запрос отчёта завершился ошибкой (HTTP ${res.status}): ${text.slice(0, 500)}`);
     }
 
-    if (lastStatus === 204) throw new DirectUnavailableError('"reports"', lastStatus, maxPolls);
-    throw new Error(`Отчёт не был готов; опросов: ${maxPolls}, последний HTTP ${lastStatus}`);
+    if (lastStatus === 204) throw new DirectUnavailableError('"reports"', lastStatus, polls);
+    throw new Error(
+      `Отчёт не был готов за ${Math.round(rate.elapsedMs / 1000)} с; опросов: ${polls}, ` +
+        `последний HTTP ${lastStatus}. Отчёт продолжает формироваться у Яндекса — ` +
+        "повторите запрос через минуту.",
+    );
   }
 }
 
-/** Seconds to wait before re-polling a report, from the retryIn header (capped). */
+/** The limit a code-56 message states. */
+export interface MethodRateLimit {
+  /** Even spacing the limit allows between calls: M/N seconds. */
+  intervalMs: number;
+  /** The whole window, M seconds: the safe wait once the limit is exhausted. */
+  windowMs: number;
+  /** Human-readable form, e.g. "не чаще 1 раз в 10 с"; absent when unparsed. */
+  text?: string;
+}
+
+/**
+ * Reads the limit from a code-56 message: "N раз в M секунд" (or the English "N time(s) per
+ * M seconds"). Unknown wording falls back to a 10 s window.
+ */
+export function methodRateLimit(error: ApiError): MethodRateLimit {
+  const text = `${error.error_detail ?? ""} ${error.error_string ?? ""}`;
+  const m = text.match(/(\d+)\s*(?:раза?|times?)\D{0,20}?(\d+)\s*(?:сек|sec)/i);
+  if (m) {
+    const times = Number(m[1]);
+    const seconds = Number(m[2]);
+    if (times > 0 && seconds > 0) {
+      return {
+        intervalMs: Math.ceil((seconds * 1000) / times),
+        windowMs: seconds * 1000,
+        text: `не чаще ${times} раз в ${seconds} с`,
+      };
+    }
+  }
+  return { intervalMs: METHOD_RATE_FALLBACK_MS, windowMs: METHOD_RATE_FALLBACK_MS };
+}
+
+/**
+ * Time budget of one call: the end-to-end deadline plus the code-56 retry allowance
+ * (consecutive answers and total time waited).
+ */
+class MethodRateBudget {
+  private consecutive = 0;
+  private waitedMs = 0;
+  private readonly startedAt = Date.now();
+  /** Spacing the API has demanded during this call (0 until the first code 56). */
+  intervalMs = 0;
+
+  constructor(
+    private readonly service: string,
+    readonly deadlineMs: number,
+  ) {}
+
+  /** Time left before the deadline (≤ 0 once it has passed). */
+  get remainingMs(): number {
+    return this.deadlineMs - this.elapsedMs;
+  }
+
+  /** Whether a wait of `ms` still fits the call's deadline. */
+  fits(ms: number): boolean {
+    return Date.now() - this.startedAt + ms <= this.deadlineMs;
+  }
+
+  get elapsedMs(): number {
+    return Date.now() - this.startedAt;
+  }
+
+  /**
+   * Waits out a code-56 answer before the replay, reporting progress. Throws
+   * {@link DirectRateLimitError} once the retry allowance or the deadline is spent.
+   */
+  async waitOut(error: ApiError): Promise<void> {
+    const limit = methodRateLimit(error);
+    const op = currentOperation();
+    if (limit.text) op.rateLimit = limit.text;
+    const ms = Math.ceil(limit.windowMs * (1 + Math.random() * METHOD_RATE_JITTER));
+    if (
+      this.consecutive >= METHOD_RATE_MAX_RETRIES ||
+      this.waitedMs + ms > METHOD_RATE_MAX_WAIT_MS ||
+      !this.fits(ms)
+    ) {
+      throw new DirectRateLimitError(error, this.service, this.consecutive, this.waitedMs, limit.text);
+    }
+    this.consecutive++;
+    this.waitedMs += ms;
+    op.rateWaitedMs += ms;
+    this.intervalMs = Math.max(this.intervalMs, limit.intervalMs);
+    const stated = limit.text ? ` (${limit.text})` : "";
+    const n = this.consecutive;
+    await wait(
+      ms,
+      (left) =>
+        `${DIRECT_RATE_LIMITED_MARKER}${stated} — повтор через ${left} с (${n}/${METHOD_RATE_MAX_RETRIES})`,
+    );
+  }
+
+  /** Any answer other than code 56 resets the consecutive count. */
+  reset(): void {
+    this.consecutive = 0;
+  }
+}
+
 /** A 2xx with no body: Direct answers HTTP 204 to everything during an outage. */
 function isEmptySuccess(res: Response, text: string): boolean {
   return res.status >= 200 && res.status < 300 && text.trim() === "";
 }
 
+/** Seconds to wait before re-polling a report, from the retryIn header (capped). */
 function pollDelayMs(res: Response): number {
   const retryIn = Number(res.headers.get("retryIn") ?? 5);
   return Math.min(Number.isFinite(retryIn) ? retryIn : 5, 10) * 1000;
@@ -529,6 +707,7 @@ export function parseUnits(header: string | null): Units | undefined {
   return { spent, rest, limit };
 }
 
+/** A silent backoff, abortable by the current call's cancellation. */
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return wait(ms);
 }

@@ -3,10 +3,17 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { YandexDirectClient, parseUnits } from "./client.js";
+import { YandexDirectClient, methodRateLimit, parseUnits } from "./client.js";
+import { OperationCancelledError, runOperation, timing } from "./operation.js";
 import { AuthRequiredError, NOT_CONNECTED_MESSAGE, TokenStore } from "./auth.js";
 import { writeCredentials } from "./credentials.js";
-import { DIRECT_UNAVAILABLE_MARKER, DirectUnavailableError, YandexDirectError } from "./types.js";
+import {
+  DIRECT_RATE_LIMITED_MARKER,
+  DIRECT_UNAVAILABLE_MARKER,
+  DirectRateLimitError,
+  DirectUnavailableError,
+  YandexDirectError,
+} from "./types.js";
 
 function mockFetch(handler: (url: string, init: RequestInit) => Response) {
   const original = globalThis.fetch;
@@ -891,6 +898,210 @@ test("report() throws DirectUnavailableError on a persistent HTTP 204", async ()
     );
     assert.equal(calls, 3);
   } finally {
+    mock.restore();
+  }
+});
+
+const LIMIT_1_PER_10 = "Данный метод можно запрашивать не чаще чем 1 раз в 10 секунд";
+
+function rateError(detail = LIMIT_1_PER_10): Response {
+  return new Response(
+    JSON.stringify({
+      error: { error_code: 56, error_string: "Превышен лимит запросов метода", error_detail: detail, request_id: "R1" },
+    }),
+    { status: 400 },
+  );
+}
+
+/** Replaces the real sleep with an instant one that records each requested wait. */
+function fakeSleep() {
+  const original = timing.sleep;
+  const waits: number[] = [];
+  timing.sleep = async (ms: number, signal?: AbortSignal) => {
+    if (signal?.aborted) throw new OperationCancelledError();
+    waits.push(ms);
+  };
+  return {
+    waits,
+    restore() {
+      timing.sleep = original;
+    },
+  };
+}
+
+test("methodRateLimit reads the stated limit and falls back to a 10 s window", () => {
+  const err = (error_detail: string) => ({ error_code: 56, error_string: "x", error_detail });
+  assert.deepEqual(methodRateLimit(err(LIMIT_1_PER_10)), {
+    intervalMs: 10_000,
+    windowMs: 10_000,
+    text: "не чаще 1 раз в 10 с",
+  });
+  assert.equal(methodRateLimit(err("не чаще чем 5 раз в 10 секунд")).intervalMs, 2_000);
+  assert.equal(methodRateLimit(err("не чаще чем 20 раз в 10 секунд")).windowMs, 10_000);
+  assert.equal(methodRateLimit(err("no more than 1 time per 10 seconds")).intervalMs, 10_000);
+  assert.deepEqual(methodRateLimit(err("не чаще чем 1 раз в 0 секунд")), { intervalMs: 10_000, windowMs: 10_000 });
+  assert.deepEqual(methodRateLimit(err("что-то новое")), { intervalMs: 10_000, windowMs: 10_000 });
+});
+
+test("report() waits out a code 56 with progress and replays without spending the poll budget", async () => {
+  const tsv = "Date\tClicks\n2026-01-01\t1\n";
+  let calls = 0;
+  const mock = mockFetch(() => (++calls === 1 ? rateError() : new Response(tsv, { status: 200 })));
+  const sleep = fakeSleep();
+  const notes: string[] = [];
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const out = await runOperation({ progress: (m: string) => notes.push(m) }, () =>
+      client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 1 }),
+    );
+    assert.equal(out, tsv);
+    assert.equal(calls, 2);
+    // A 10 s window plus up to 20% jitter, never less than the window (slept in ≤10 s steps).
+    const total = sleep.waits.reduce((a, b) => a + b, 0);
+    assert.ok(total >= 10_000 && total <= 12_000);
+    assert.ok(sleep.waits.every((ms) => ms <= 10_000));
+    assert.match(notes[0], new RegExp(`^${DIRECT_RATE_LIMITED_MARKER} \\(не чаще 1 раз в 10 с\\) — повтор через \\d+ с \\(1/3\\)`));
+  } finally {
+    sleep.restore();
+    mock.restore();
+  }
+});
+
+test("report() paces polls to the stated limit after a code 56 between offline polls", async () => {
+  const tsv = "Date\tClicks\n2026-01-01\t1\n";
+  const answers = [
+    () => new Response("", { status: 201, headers: { retryIn: "1" } }),
+    () => rateError(),
+    () => new Response("", { status: 202, headers: { retryIn: "1" } }),
+    () => new Response(tsv, { status: 200 }),
+  ];
+  let calls = 0;
+  const mock = mockFetch(() => answers[calls++]());
+  const sleep = fakeSleep();
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const out = await client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" });
+    assert.equal(out, tsv);
+    assert.equal(calls, answers.length);
+    // retryIn before the code 56, the jittered 10 s window for it, then polls no faster than 10 s.
+    assert.equal(sleep.waits[0], 1_000);
+    assert.equal(sleep.waits[sleep.waits.length - 1], 10_000);
+    const window = sleep.waits.slice(1, -1).reduce((a, b) => a + b, 0);
+    assert.ok(window >= 10_000 && window <= 12_000);
+  } finally {
+    sleep.restore();
+    mock.restore();
+  }
+});
+
+test("report() gives up after three code 56 answers with an explanatory error", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return rateError();
+  });
+  const sleep = fakeSleep();
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(
+      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }),
+      (err: unknown) =>
+        err instanceof DirectRateLimitError &&
+        err instanceof YandexDirectError &&
+        err.code === 56 &&
+        err.message.startsWith(`${DIRECT_RATE_LIMITED_MARKER} (не чаще 1 раз в 10 с)`) &&
+        /после 3 повторов/.test(err.message) &&
+        /\[56\]/.test(err.message) &&
+        /повторите один запрос через минуту/.test(err.message) &&
+        /request_id: R1/.test(err.message),
+    );
+    assert.equal(calls, 4);
+  } finally {
+    sleep.restore();
+    mock.restore();
+  }
+});
+
+test("call() waits out a code 56 for a write too, without spending maxRetries", async () => {
+  let calls = 0;
+  const mock = mockFetch(() =>
+    ++calls === 1
+      ? rateError()
+      : new Response(JSON.stringify({ result: { UpdateResults: [] } }), { status: 200 }),
+  );
+  const sleep = fakeSleep();
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, maxRetries: 0 });
+    const result = await client.call("campaigns", "update", {});
+    assert.deepEqual(result, { UpdateResults: [] });
+    assert.equal(calls, 2);
+  } finally {
+    sleep.restore();
+    mock.restore();
+  }
+});
+
+test("a cancelled call stops waiting and never replays the request", async () => {
+  let calls = 0;
+  const mock = mockFetch(() => {
+    calls++;
+    return rateError();
+  });
+  const controller = new AbortController();
+  const original = timing.sleep;
+  // The client gives up while the server waits out the code 56.
+  timing.sleep = async () => {
+    controller.abort();
+    throw new OperationCancelledError();
+  };
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(
+      () => runOperation({ signal: controller.signal }, () => client.call("campaigns", "update", {})),
+      OperationCancelledError,
+    );
+    assert.equal(calls, 1);
+  } finally {
+    timing.sleep = original;
+    mock.restore();
+  }
+});
+
+test("an already cancelled call sends nothing", async () => {
+  const mock = mockFetch(() => new Response(JSON.stringify({ result: {} }), { status: 200 }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+      () => runOperation({ signal: controller.signal }, () => client.call("campaigns", "get", {})),
+      OperationCancelledError,
+    );
+    assert.equal(mock.calls.length, 0);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() stops retrying once the next backoff would overrun the deadline", async () => {
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  let calls = 0;
+  // Each 5xx answer takes 40 s: the third retry would end past the 90 s deadline.
+  const mock = mockFetch(() => {
+    calls++;
+    clock += 40_000;
+    return new Response("err", { status: 503 });
+  });
+  const sleep = fakeSleep();
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true, maxRetries: 10, retryBaseMs: 1 });
+    await assert.rejects(() => client.call("campaigns", "get", {}), /HTTP 503/);
+    assert.equal(calls, 3);
+  } finally {
+    Date.now = realNow;
+    sleep.restore();
     mock.restore();
   }
 });

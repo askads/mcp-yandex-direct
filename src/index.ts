@@ -6,6 +6,7 @@ import { TokenStore } from "./auth.js";
 import { YandexDirectClient } from "./client.js";
 import { ConfigError, loadConfig } from "./config.js";
 import { instrumentToolCalls, Telemetry } from "./telemetry.js";
+import { instrumentOperations } from "./operation.js";
 import type { YandexDirectConfig } from "./types.js";
 
 /** Reads the package version so the server reports its real version to MCP clients. */
@@ -125,6 +126,7 @@ async function main(): Promise<void> {
   );
 
   instrumentToolCalls(server, telemetry);
+  instrumentOperations(server);
   server.server.oninitialized = () => {
     telemetry.setClientInfo(server.server.getClientVersion());
     // Split on purpose: `server_start` keeps meaning "a usable install started",

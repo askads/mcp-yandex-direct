@@ -26,6 +26,13 @@ export interface ApiError {
 export const DIRECT_UNAVAILABLE_MARKER = "API Яндекс Директа недоступен";
 
 /**
+ * Stable prefix of a {@link DirectRateLimitError} message and of the note on a result that was
+ * slowed down by code 56. Consumers (the askads backend) match on it to tell the user that the
+ * delay or failure comes from Yandex's rate limit, not from a hung server.
+ */
+export const DIRECT_RATE_LIMITED_MARKER = "Яндекс Директ ограничивает частоту запросов";
+
+/**
  * The API answered a 2xx with no body (since 2026-10-11 every Direct service, v5/v501/v4,
  * returns HTTP 204 during an outage): the request was NOT processed on Yandex's side.
  * Not a client error and not a malformed response — "retry later".
@@ -60,5 +67,24 @@ export class YandexDirectError extends Error {
     this.code = err.error_code;
     this.detail = err.error_detail;
     this.requestId = err.request_id;
+  }
+}
+
+/**
+ * Code 56 (per-method rate limit) kept coming after the retry budget ran out. Still a
+ * {@link YandexDirectError} with code 56, but the message tells the user what happened and
+ * what to do instead of the bare API text.
+ */
+export class DirectRateLimitError extends YandexDirectError {
+  constructor(err: ApiError, service: string, retries: number, waitedMs: number, limit?: string) {
+    super(err);
+    this.name = "DirectRateLimitError";
+    const stated = limit ? ` (${limit})` : "";
+    const reqId = err.request_id ? ` (request_id: ${err.request_id})` : "";
+    this.message =
+      `${DIRECT_RATE_LIMITED_MARKER}${stated}: запрос к "${service}" не выполнен — ` +
+      `после ${retries} повторов и ${Math.round(waitedMs / 1000)} с ожидания Яндекс всё ещё отвечает [56]. ` +
+      "Не запускайте такие запросы параллельно; повторите один запрос через минуту." +
+      reqId;
   }
 }
