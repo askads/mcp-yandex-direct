@@ -907,7 +907,8 @@ const LIMIT_1_PER_10 = "Данный метод можно запрашиват�
 function rateError(detail = LIMIT_1_PER_10): Response {
   return new Response(
     JSON.stringify({
-      error: { error_code: 56, error_string: "Превышен лимит запросов метода", error_detail: detail, request_id: "R1" },
+      // Reports sends error_code as a string — exactly as the live API does.
+      error: { error_code: "56", error_string: "Превышен лимит запросов метода", error_detail: detail, request_id: "R1" },
     }),
     { status: 400 },
   );

@@ -288,6 +288,8 @@ export class YandexDirectClient {
       }
 
       if (data.error) {
+        // Numeric in the JSON API today; normalized anyway, as Reports already sends strings.
+        data.error.error_code = Number(data.error.error_code);
         // Code 56 has its own budget: the wait comes from the stated limit, not the backoff.
         if (data.error.error_code === METHOD_RATE_CODE) {
           await rate.waitOut(data.error);
@@ -557,6 +559,9 @@ export class YandexDirectClient {
       let parsed: { error?: ApiError } | undefined;
       try {
         parsed = JSON.parse(text) as { error?: ApiError };
+        // Reports, unlike the JSON API, sends error_code as a string ("53", "56"):
+        // normalize, or every code comparison below silently never matches.
+        if (parsed?.error) parsed.error.error_code = Number(parsed.error.error_code);
       } catch {
         // Not JSON — falls through to the generic error below.
       }

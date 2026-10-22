@@ -1,7 +1,7 @@
 {
   "name": "mcp-yandex-direct",
   "displayName": "Yandex Direct MCP",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Work with a Yandex Direct account from Claude: campaigns, ad groups, ads, keywords, bids and report statistics.",
   "author": {
     "name": "gistrec",
@@ -49,7 +49,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "mcp-yandex-direct@1.5.4"
+        "mcp-yandex-direct@1.5.5"
       ],
       "env": {
         "YANDEX_DIRECT_TOKEN": "${user_config.token}",
