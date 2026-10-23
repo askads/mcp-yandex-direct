@@ -79,6 +79,14 @@ export class YandexDirectClient {
   private readonly maxRetries: number;
   private readonly retryBaseMs: number;
   private latestUnits?: Units;
+  /**
+   * Spacing between Reports requests that Direct has demanded (learned from code 56, 0 until
+   * then) and when the last one went out. Carried across report() calls so back-to-back
+   * reports — clients_overview walks clients one by one — wait out the limit up front
+   * instead of drawing a fresh code 56 each.
+   */
+  private reportPaceMs = 0;
+  private lastReportAt = 0;
 
   private readonly tokens: TokenStore;
 
@@ -529,9 +537,14 @@ export class YandexDirectClient {
     let refreshed = false;
     let polls = 0;
     const rate = new MethodRateBudget("reports", REPORT_DEADLINE_MS);
+    const paceLeft = this.lastReportAt + this.reportPaceMs - Date.now();
+    if (paceLeft > 0) {
+      await wait(paceLeft, (left) => `Пауза перед отчётом по лимиту частоты Яндекса: ${left} с`);
+    }
 
     for (let attempt = 0; attempt < maxPolls; attempt++) {
       polls++;
+      this.lastReportAt = Date.now();
       // Headers are rebuilt per poll so the token is resolved through the
       // TokenStore each time: a missing token raises AuthRequiredError before
       // the first fetch, and a re-minted token is picked up on replay.
@@ -586,6 +599,7 @@ export class YandexDirectClient {
         // without spending the poll budget on it.
         if (parsed.error.error_code === METHOD_RATE_CODE) {
           await rate.waitOut(parsed.error);
+          this.reportPaceMs = Math.max(this.reportPaceMs, rate.intervalMs);
           attempt--;
           continue;
         }

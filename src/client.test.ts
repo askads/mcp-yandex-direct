@@ -995,6 +995,45 @@ test("report() paces polls to the stated limit after a code 56 between offline p
   }
 });
 
+test("report() carries a learned code-56 pace to the next report instead of drawing another 56", async () => {
+  const tsv = "Impressions\tClicks\tCost\n10\t1\t5\n";
+  const answers = [() => rateError(), () => new Response(tsv, { status: 200 }), () => new Response(tsv, { status: 200 })];
+  let calls = 0;
+  const mock = mockFetch(() => answers[calls++]());
+  const sleep = fakeSleep();
+  const notes: string[] = [];
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" });
+    const before = sleep.waits.length;
+    await runOperation({ progress: (m: string) => notes.push(m) }, () =>
+      client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }),
+    );
+    // Only three requests: the second report waited up front and was not refused.
+    assert.equal(calls, 3);
+    const paused = sleep.waits.slice(before).reduce((a, b) => a + b, 0);
+    assert.ok(paused > 9_000 && paused <= 10_000, `paused ${paused} ms`);
+    assert.match(notes[0], /Пауза перед отчётом/);
+  } finally {
+    sleep.restore();
+    mock.restore();
+  }
+});
+
+test("report() does not pause before the first report or without a code 56", async () => {
+  const mock = mockFetch(() => new Response("Clicks\n1\n", { status: 200 }));
+  const sleep = fakeSleep();
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" });
+    await client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" });
+    assert.deepEqual(sleep.waits, []);
+  } finally {
+    sleep.restore();
+    mock.restore();
+  }
+});
+
 test("report() gives up after three code 56 answers with an explanatory error", async () => {
   let calls = 0;
   const mock = mockFetch(() => {

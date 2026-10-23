@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { currentClientLogin } from "../clientLogin.js";
 import { YandexDirectError } from "../types.js";
-import { registerClientTools } from "./clients.js";
+import { parseAccountTotals, registerClientTools } from "./clients.js";
 
 type Handler = (args: Record<string, unknown>) => Promise<{ content: { text: string }[]; isError?: boolean }>;
 
@@ -101,9 +101,17 @@ function overviewHarness(opts: {
   campaigns?: Record<string, { State: string; Status: string }[] | Error>;
   balances?: unknown;
   configured?: string[];
+  reports?: Record<string, string | Error>;
 }) {
   const tools: Record<string, Handler> = {};
-  const seen = { campaignLogins: [] as (string | null | undefined)[], v4: [] as any[], inFlight: 0, maxInFlight: 0 };
+  const seen = {
+    campaignLogins: [] as (string | null | undefined)[],
+    v4: [] as any[],
+    reports: [] as { login: string | null | undefined; period: string; type: string }[],
+    inFlight: 0,
+    maxInFlight: 0,
+    maxReportsInFlight: 0,
+  };
   const client = {
     configuredClients: opts.configured ?? [],
     call: async () => {
@@ -121,6 +129,17 @@ function overviewHarness(opts: {
       const result = opts.campaigns?.[String(login)] ?? [];
       if (result instanceof Error) throw result;
       return { Campaigns: result };
+    },
+    report: async (params: any) => {
+      const login = currentClientLogin();
+      seen.reports.push({ login, period: params.DateRangeType, type: params.ReportType });
+      seen.inFlight++;
+      seen.maxReportsInFlight = Math.max(seen.maxReportsInFlight, seen.inFlight);
+      await new Promise((r) => setTimeout(r, 2));
+      seen.inFlight--;
+      const tsv = opts.reports?.[String(login)];
+      if (tsv instanceof Error) throw tsv;
+      return tsv ?? "Impressions\tClicks\tCost\n";
     },
     callV4: async (_method: string, param: any) => {
       seen.v4.push(param);
@@ -201,4 +220,75 @@ test("clients_overview: a plain account without YANDEX_DIRECT_CLIENTS explains h
   assert.equal(body.accountType, "advertiser");
   assert.equal(body.total, 0);
   assert.match(body.note, /YANDEX_DIRECT_CLIENTS/);
+});
+
+test("parseAccountTotals reads the totals row by column name; no row means zeros", () => {
+  assert.deepEqual(parseAccountTotals("Cost\tImpressions\tClicks\n1234.5\t900\t31\n"), {
+    impressions: 900,
+    clicks: 31,
+    cost: 1234.5,
+  });
+  assert.deepEqual(parseAccountTotals("Impressions\tClicks\tCost\n"), { impressions: 0, clicks: 0, cost: 0 });
+});
+
+test("clients_overview stats: one report per client, one at a time, under its Client-Login", async () => {
+  const { tools, seen } = overviewHarness({
+    campaigns: {
+      "shop-msk": [{ State: "ON", Status: "ACCEPTED" }],
+      "shop-spb": [{ State: "ON", Status: "ACCEPTED" }],
+    },
+    reports: {
+      "shop-msk": "Impressions\tClicks\tCost\n1000\t50\t2500.75\n",
+      "shop-spb": new Error("[8800] Клиент не найден"),
+    },
+  });
+  const res = await tools.clients_overview({ stats: "LAST_7_DAYS" });
+  assert.notEqual(res.isError, true);
+  const body = JSON.parse(res.content[0].text);
+
+  assert.deepEqual(seen.reports.map((r) => r.login), ["shop-msk", "shop-spb"]);
+  assert.ok(seen.reports.every((r) => r.period === "LAST_7_DAYS" && r.type === "ACCOUNT_PERFORMANCE_REPORT"));
+  assert.equal(seen.maxReportsInFlight, 1, "Reports allows ~1 request per 10 s: never in parallel");
+  assert.deepEqual(body.clients[0].stats, { impressions: 1000, clicks: 50, cost: 2500.75 });
+  assert.match(body.clients[1].statsError, /8800/);
+  assert.equal(body.statsPeriod, "LAST_7_DAYS");
+});
+
+test("clients_overview stats: no report for a client without campaigns or without access", async () => {
+  const { tools, seen } = overviewHarness({
+    campaigns: { "shop-msk": [], "shop-spb": new Error("[54] Нет прав") },
+  });
+  const body = JSON.parse((await tools.clients_overview({ stats: "YESTERDAY" })).content[0].text);
+  assert.equal(seen.reports.length, 0);
+  assert.match(body.clients[0].statsSkipped, /нет неархивных кампаний/);
+  assert.match(body.clients[1].statsSkipped, /нет доступа/);
+});
+
+test("clients_overview without stats requests no reports at all", async () => {
+  const { tools, seen } = overviewHarness({ campaigns: { "shop-msk": [{ State: "ON", Status: "ACCEPTED" }] } });
+  const body = JSON.parse((await tools.clients_overview({})).content[0].text);
+  assert.equal(seen.reports.length, 0);
+  assert.equal(body.statsPeriod, undefined);
+  assert.equal(body.clients[0].stats, undefined);
+});
+
+test("clients_overview stats: clients past the 5-minute deadline are marked, not waited for", async (t) => {
+  const { tools, seen } = overviewHarness({
+    campaigns: {
+      "shop-msk": [{ State: "ON", Status: "ACCEPTED" }],
+      "shop-spb": [{ State: "ON", Status: "ACCEPTED" }],
+    },
+  });
+  // The clock jumps 10 minutes with every report: the first one fits, the second does not.
+  let now = 1_000_000;
+  t.mock.method(Date, "now", () => now);
+  const realReport = seen.reports.push.bind(seen.reports);
+  seen.reports.push = (...items) => {
+    now += 600_000;
+    return realReport(...items);
+  };
+  const body = JSON.parse((await tools.clients_overview({ stats: "YESTERDAY" })).content[0].text);
+  assert.equal(seen.reports.length, 1);
+  assert.ok(body.clients[0].stats);
+  assert.match(body.clients[1].statsSkipped, /не хватило времени/);
 });

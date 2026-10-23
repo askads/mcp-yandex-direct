@@ -115,6 +115,21 @@ export interface CampaignCounts {
   draft: number;
 }
 
+/** Periods clients_overview can report spend for (Reports DateRangeType). */
+export const STATS_PERIODS = ["TODAY", "YESTERDAY", "LAST_7_DAYS", "LAST_30_DAYS", "THIS_MONTH", "LAST_MONTH"] as const;
+/**
+ * Time the spend phase may take. Reports allows one request per ~10 s per token, so the
+ * reports go one by one; whoever is left when this runs out is marked, not waited for.
+ */
+export const STATS_DEADLINE_MS = 300_000;
+
+/** One client's totals for the period, money in account currency, VAT included. */
+export interface ClientStats {
+  impressions: number;
+  clicks: number;
+  cost: number;
+}
+
 /** One row of clients_overview. */
 export interface ClientSummary {
   login: string;
@@ -124,6 +139,41 @@ export interface ClientSummary {
   balanceError?: string;
   campaigns?: CampaignCounts;
   error?: string;
+  stats?: ClientStats;
+  statsError?: string;
+  /** Why no report was requested for this client. */
+  statsSkipped?: string;
+}
+
+/** Totals from an ACCOUNT_PERFORMANCE_REPORT TSV: a header row and at most one data row. */
+export function parseAccountTotals(tsv: string): ClientStats {
+  const [header, row] = tsv.split("\n").filter((line) => line.trim() !== "");
+  const totals: ClientStats = { impressions: 0, clicks: 0, cost: 0 };
+  if (!header || !row) return totals;
+  const names = header.split("\t");
+  const values = row.split("\t");
+  const pick = (name: string) => {
+    const n = Number(values[names.indexOf(name)]);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return { impressions: pick("Impressions"), clicks: pick("Clicks"), cost: pick("Cost") };
+}
+
+/** One client's totals for `period`, under its own Client-Login. */
+async function fetchClientStats(client: YandexDirectClient, login: string, period: string): Promise<ClientStats> {
+  const tsv = await withClientLogin(login, () =>
+    client.report({
+      SelectionCriteria: {},
+      FieldNames: ["Impressions", "Clicks", "Cost"],
+      ReportName: `mcp-overview-${login}-${period}-${Date.now()}`,
+      ReportType: "ACCOUNT_PERFORMANCE_REPORT",
+      DateRangeType: period,
+      Format: "TSV",
+      IncludeVAT: "YES",
+      IncludeDiscount: "NO",
+    }),
+  );
+  return parseAccountTotals(tsv);
 }
 
 /** Runs `fn` over `items` with at most `limit` in flight, keeping the input order. */
@@ -275,7 +325,7 @@ export function registerClientTools(server: McpServer, client: YandexDirectClien
       title: "Сводка по клиентам",
       annotations: READ_ONLY,
       description:
-        "Сводка по всем клиентам агентства и кабинетам в управлении за один вызов — для вопросов вроде «что у меня по аккаунтам в управлении»: по каждому клиенту баланс общего счёта и число кампаний по состояниям (on — идут или могут идти, suspended — остановлены пользователем, off — не идут по другой причине, ended) и статусам модерации (moderation, rejected, draft). Архивные кампании не считаются. Клиенты — из list_clients, либо явный список logins. Ошибка по одному клиенту (нет доступа, нет общего счёта) не прерывает остальных и попадает в его строку. Расхода и кликов здесь нет: статистика по клиенту — get_statistics с client_login. Не вызывать list_campaigns по каждому клиенту в цикле — эта сводка дешевле. Тратит баллы API каждого клиента: один запрос кампаний на клиента и один запрос баланса на 50 клиентов.",
+        "Сводка по всем клиентам агентства и кабинетам в управлении за один вызов — для вопросов вроде «что у меня по аккаунтам в управлении»: по каждому клиенту баланс общего счёта и число кампаний по состояниям (on — идут или могут идти, suspended — остановлены пользователем, off — не идут по другой причине, ended) и статусам модерации (moderation, rejected, draft). Архивные кампании не считаются. Клиенты — из list_clients, либо явный список logins. Ошибка по одному клиенту (нет доступа, нет общего счёта) не прерывает остальных и попадает в его строку. С параметром stats добавляет показы, клики и расход (с НДС, в валюте клиента) за период — по одному отчёту Reports на клиента, строго по очереди: Яндекс пускает примерно один отчёт в 10 секунд, так что 30 клиентов — около 5 минут; клиенты без неархивных кампаний не запрашиваются, а кто не уложился в 5 минут, помечается statsSkipped. Без stats ответ приходит за секунды — запрашивать расход, только когда вопрос про деньги или трафик. Не вызывать list_campaigns по каждому клиенту в цикле — эта сводка дешевле. Тратит баллы API каждого клиента: один запрос кампаний на клиента и один запрос баланса на 50 клиентов.",
       inputSchema: {
         logins: z
           .array(z.string().trim().min(1))
@@ -295,9 +345,13 @@ export function registerClientTools(server: McpServer, client: YandexDirectClien
           .max(OVERVIEW_MAX_CLIENTS)
           .optional()
           .describe(`Сколько клиентов обойти, 1–${OVERVIEW_MAX_CLIENTS}. По умолчанию ${OVERVIEW_DEFAULT_CLIENTS}.`),
+        stats: z
+          .enum(STATS_PERIODS)
+          .optional()
+          .describe("Добавить показы, клики и расход за этот период. Медленно: около 10 с на клиента."),
       },
     },
-    async ({ logins, search, limit }) => {
+    async ({ logins, search, limit, stats }) => {
       try {
         let accountType: ClientList["accountType"] | undefined;
         let entries: ClientEntry[];
@@ -343,12 +397,35 @@ export function registerClientTools(server: McpServer, client: YandexDirectClien
           return row;
         });
 
+        if (stats) {
+          const deadline = Date.now() + STATS_DEADLINE_MS;
+          let reported = 0;
+          for (const row of rows) {
+            throwIfCancelled(op);
+            if (row.error) {
+              row.statsSkipped = "нет доступа к кабинету";
+            } else if (row.campaigns?.total === 0) {
+              row.statsSkipped = "нет неархивных кампаний";
+            } else if (Date.now() >= deadline) {
+              row.statsSkipped = "не хватило времени — запросите этого клиента отдельно";
+            } else {
+              try {
+                row.stats = await fetchClientStats(client, row.login, stats);
+              } catch (err) {
+                row.statsError = message(err);
+              }
+            }
+            op.progress(`Расход по клиентам: ${++reported}/${rows.length}`);
+          }
+        }
+
         const failed = rows.filter((r) => r.error).length;
         return ok({
           ...(accountType ? { accountType } : {}),
           total: entries.length,
           clients: rows,
           ...(failed ? { failed } : {}),
+          ...(stats ? { statsPeriod: stats, statsNote: "Расход с НДС, в валюте каждого клиента — не складывать разные валюты." } : {}),
           ...(entries.length > chosen.length
             ? {
                 _truncated: true,
