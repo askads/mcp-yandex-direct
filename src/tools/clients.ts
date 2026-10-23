@@ -94,8 +94,10 @@ export const OVERVIEW_CONCURRENCY = 4;
 /** Default and hard cap on the clients one clients_overview call walks. */
 export const OVERVIEW_DEFAULT_CLIENTS = 50;
 export const OVERVIEW_MAX_CLIENTS = 200;
-/** AccountManagement.Get takes at most 50 logins per request. */
+/** AccountManagement.Get takes at most 50 logins per request — from an agency. */
 const BALANCE_BATCH = 50;
+/** Live v4 [71] "Клиент может передавать только один логин": a non-agency token, one per request. */
+const ONE_LOGIN_ONLY = /\[71\][^]*только один логин/;
 /** Campaign states that matter for "what is running"; archived campaigns are skipped. */
 const LIVE_STATES = ["ON", "SUSPENDED", "OFF", "ENDED"];
 
@@ -216,16 +218,19 @@ interface V4Accounts {
 }
 
 /**
- * Shared-account balances for `logins`, 50 per Live v4 request. A login without one (or
- * without access) comes back as an error string — never fails the others.
+ * Shared-account balances for `logins`, 50 per Live v4 request — or one per request once v4
+ * says the token is not an agency's. A login without one (or without access) comes back as
+ * an error string — never fails the others.
  */
 async function fetchBalances(
   client: YandexDirectClient,
   logins: string[],
+  perRequest = BALANCE_BATCH,
 ): Promise<Map<string, { amount: number; currency?: string } | string>> {
   const out = new Map<string, { amount: number; currency?: string } | string>();
-  for (let i = 0; i < logins.length; i += BALANCE_BATCH) {
-    const batch = logins.slice(i, i + BALANCE_BATCH);
+  let size = perRequest;
+  for (let i = 0; i < logins.length; ) {
+    const batch = logins.slice(i, i + size);
     try {
       const data = await client.callV4<V4Accounts>("AccountManagement", {
         Action: "Get",
@@ -241,8 +246,13 @@ async function fetchBalances(
         }
       }
     } catch (err) {
+      if (size > 1 && batch.length > 1 && ONE_LOGIN_ONLY.test(message(err))) {
+        size = 1;
+        continue;
+      }
       for (const login of batch) out.set(login.toLowerCase(), message(err));
     }
+    i += batch.length;
   }
   return out;
 }
@@ -325,7 +335,7 @@ export function registerClientTools(server: McpServer, client: YandexDirectClien
       title: "Сводка по клиентам",
       annotations: READ_ONLY,
       description:
-        "Сводка по всем клиентам агентства и кабинетам в управлении за один вызов — для вопросов вроде «что у меня по аккаунтам в управлении»: по каждому клиенту баланс общего счёта и число кампаний по состояниям (on — идут или могут идти, suspended — остановлены пользователем, off — не идут по другой причине, ended) и статусам модерации (moderation, rejected, draft). Архивные кампании не считаются. Клиенты — из list_clients, либо явный список logins. Ошибка по одному клиенту (нет доступа, нет общего счёта) не прерывает остальных и попадает в его строку. С параметром stats добавляет показы, клики и расход (с НДС, в валюте клиента) за период — по одному отчёту Reports на клиента, строго по очереди: Яндекс пускает примерно один отчёт в 10 секунд, так что 30 клиентов — около 5 минут; клиенты без неархивных кампаний не запрашиваются, а кто не уложился в 5 минут, помечается statsSkipped. Без stats ответ приходит за секунды — запрашивать расход, только когда вопрос про деньги или трафик. Не вызывать list_campaigns по каждому клиенту в цикле — эта сводка дешевле. Тратит баллы API каждого клиента: один запрос кампаний на клиента и один запрос баланса на 50 клиентов.",
+        "Сводка по всем клиентам агентства и кабинетам в управлении за один вызов — для вопросов вроде «что у меня по аккаунтам в управлении»: по каждому клиенту баланс общего счёта и число кампаний по состояниям (on — идут или могут идти, suspended — остановлены пользователем, off — не идут по другой причине, ended) и статусам модерации (moderation, rejected, draft). Архивные кампании не считаются. Клиенты — из list_clients, либо явный список logins. Ошибка по одному клиенту (нет доступа, нет общего счёта) не прерывает остальных и попадает в его строку. С параметром stats добавляет показы, клики и расход (с НДС, в валюте клиента) за период — по одному отчёту Reports на клиента, строго по очереди: Яндекс пускает примерно один отчёт в 10 секунд, так что 30 клиентов — около 5 минут; клиенты без неархивных кампаний не запрашиваются, а кто не уложился в 5 минут, помечается statsSkipped. Без stats ответ приходит за секунды — запрашивать расход, только когда вопрос про деньги или трафик. Не вызывать list_campaigns по каждому клиенту в цикле — эта сводка дешевле. Тратит баллы API каждого клиента: один запрос кампаний на клиента и один запрос баланса на 50 клиентов у агентства (у обычного аккаунта — на каждого).",
       inputSchema: {
         logins: z
           .array(z.string().trim().min(1))
@@ -380,7 +390,12 @@ export function registerClientTools(server: McpServer, client: YandexDirectClien
         const chosen = entries.slice(0, cap);
         const op = currentOperation();
 
-        const balances = await fetchBalances(client, chosen.map((c) => c.login));
+        // A known non-agency token skips straight to one login per request (v4 [71] otherwise).
+        const balances = await fetchBalances(
+          client,
+          chosen.map((c) => c.login),
+          accountType === "advertiser" ? 1 : BALANCE_BATCH,
+        );
         let done = 0;
         const rows = await mapLimit(chosen, OVERVIEW_CONCURRENCY, async (entry): Promise<ClientSummary> => {
           throwIfCancelled(op);

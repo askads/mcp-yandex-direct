@@ -292,3 +292,36 @@ test("clients_overview stats: clients past the 5-minute deadline are marked, not
   assert.ok(body.clients[0].stats);
   assert.match(body.clients[1].statsSkipped, /не хватило времени/);
 });
+
+test("clients_overview: v4 [71] (non-agency, one login per request) falls back to one by one", async () => {
+  const tools: Record<string, Handler> = {};
+  const v4: string[][] = [];
+  const client = {
+    configuredClients: [],
+    call: async () => {
+      throw new YandexDirectError({ error_code: 54, error_string: "Нет прав" });
+    },
+    getAll: async () => ({ Campaigns: [] }),
+    callV4: async (_m: string, param: any) => {
+      const logins: string[] = param.SelectionCriteria.Logins;
+      v4.push(logins);
+      if (logins.length > 1) {
+        throw new Error('Ошибка Live v4 "AccountManagement": [71] Параметры запроса указаны неверно: Клиент может передавать только один логин');
+      }
+      return { Accounts: [{ Login: logins[0], Amount: "7", Currency: "USD" }] };
+    },
+  };
+  registerClientTools({ registerTool: (n: string, _c: unknown, h: Handler) => (tools[n] = h) } as never, client as never);
+  const body = JSON.parse((await tools.clients_overview({ logins: ["a", "b", "c"] })).content[0].text);
+  assert.deepEqual(v4, [["a", "b", "c"], ["a"], ["b"], ["c"]]);
+  assert.deepEqual(body.clients.map((c: any) => c.balance?.amount), [7, 7, 7]);
+});
+
+test("clients_overview: a known plain account asks v4 one login at a time from the start", async () => {
+  const { tools, seen } = overviewHarness({
+    agency: new YandexDirectError({ error_code: 54, error_string: "Нет прав" }),
+    configured: ["a", "b"],
+  });
+  await tools.clients_overview({});
+  assert.deepEqual(seen.v4.map((p) => p.SelectionCriteria.Logins), [["a"], ["b"]]);
+});
