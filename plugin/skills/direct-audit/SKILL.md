@@ -18,7 +18,8 @@ An agency token operates on the agency's own account until a client is chosen. C
 that before trusting an empty campaign list — an empty result usually means the wrong
 account, not an empty account. `list_clients` lists the agency's clients (and the managed
 accounts configured in `YANDEX_DIRECT_CLIENTS`); pass the chosen login as `client_login` to
-any data tool. Each call names its client in `_client` — check it before a write.
+any data tool. For "what is going on across my clients" call `clients_overview` once instead
+of looping `list_campaigns` over clients. Each call names its client in `_client` — check it before a write.
 
 ## Filtering campaigns
 

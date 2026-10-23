@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
 import { withClientLogin } from "../clientLogin.js";
+import { currentOperation, throwIfCancelled } from "../operation.js";
 import { YandexDirectError } from "../types.js";
 import { fail, MAX_TOOL_LIMIT, ok, READ_ONLY } from "./util.js";
 
@@ -88,6 +89,125 @@ const ADVERTISER_EMPTY_NOTE =
   "YANDEX_DIRECT_CLIENTS в конфигурации MCP-клиента (логины через запятую). Любой такой логин " +
   "можно и без списка передать в client_login — попросите пользователя назвать логин кабинета.";
 
+/** Clients summarised in parallel: different advertisers, so no shared per-advertiser limit. */
+export const OVERVIEW_CONCURRENCY = 4;
+/** Default and hard cap on the clients one clients_overview call walks. */
+export const OVERVIEW_DEFAULT_CLIENTS = 50;
+export const OVERVIEW_MAX_CLIENTS = 200;
+/** AccountManagement.Get takes at most 50 logins per request. */
+const BALANCE_BATCH = 50;
+/** Campaign states that matter for "what is running"; archived campaigns are skipped. */
+const LIVE_STATES = ["ON", "SUSPENDED", "OFF", "ENDED"];
+
+/** Campaign counts of one client. */
+export interface CampaignCounts {
+  total: number;
+  /** State=ON: showing or allowed to show. */
+  on: number;
+  /** State=SUSPENDED: paused by the user. */
+  suspended: number;
+  /** State=OFF: not showing for another reason (no money, schedule, moderation). */
+  off: number;
+  ended: number;
+  /** Status=MODERATION / REJECTED / DRAFT, across the states above. */
+  moderation: number;
+  rejected: number;
+  draft: number;
+}
+
+/** One row of clients_overview. */
+export interface ClientSummary {
+  login: string;
+  name?: string;
+  currency?: string;
+  balance?: { amount: number; currency?: string };
+  balanceError?: string;
+  campaigns?: CampaignCounts;
+  error?: string;
+}
+
+/** Runs `fn` over `items` with at most `limit` in flight, keeping the input order. */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Counts campaigns by state and status. */
+export function countCampaigns(campaigns: { State?: string; Status?: string }[]): CampaignCounts {
+  const counts: CampaignCounts = { total: 0, on: 0, suspended: 0, off: 0, ended: 0, moderation: 0, rejected: 0, draft: 0 };
+  for (const c of campaigns) {
+    counts.total++;
+    if (c.State === "ON") counts.on++;
+    else if (c.State === "SUSPENDED") counts.suspended++;
+    else if (c.State === "OFF") counts.off++;
+    else if (c.State === "ENDED") counts.ended++;
+    if (c.Status === "MODERATION") counts.moderation++;
+    else if (c.Status === "REJECTED") counts.rejected++;
+    else if (c.Status === "DRAFT") counts.draft++;
+  }
+  return counts;
+}
+
+interface V4Accounts {
+  Accounts?: { Login?: string; Amount?: string; Currency?: string }[];
+  ActionsResult?: { Login?: string; Errors?: { FaultString?: string; FaultDetail?: string }[] }[];
+}
+
+/**
+ * Shared-account balances for `logins`, 50 per Live v4 request. A login without one (or
+ * without access) comes back as an error string — never fails the others.
+ */
+async function fetchBalances(
+  client: YandexDirectClient,
+  logins: string[],
+): Promise<Map<string, { amount: number; currency?: string } | string>> {
+  const out = new Map<string, { amount: number; currency?: string } | string>();
+  for (let i = 0; i < logins.length; i += BALANCE_BATCH) {
+    const batch = logins.slice(i, i + BALANCE_BATCH);
+    try {
+      const data = await client.callV4<V4Accounts>("AccountManagement", {
+        Action: "Get",
+        SelectionCriteria: { Logins: batch },
+      });
+      for (const a of data.Accounts ?? []) {
+        if (a.Login) out.set(a.Login.toLowerCase(), { amount: Number(a.Amount), currency: a.Currency });
+      }
+      for (const r of data.ActionsResult ?? []) {
+        const err = r.Errors?.[0];
+        if (r.Login && err) {
+          out.set(r.Login.toLowerCase(), [err.FaultString, err.FaultDetail].filter(Boolean).join(": "));
+        }
+      }
+    } catch (err) {
+      for (const login of batch) out.set(login.toLowerCase(), message(err));
+    }
+  }
+  return out;
+}
+
+/** One client's campaign counts, under its own Client-Login. */
+async function summarizeCampaigns(client: YandexDirectClient, login: string): Promise<CampaignCounts> {
+  const result = await withClientLogin(login, () =>
+    client.getAll<{ Campaigns?: { State?: string; Status?: string }[] }>("campaigns", {
+      SelectionCriteria: { States: LIVE_STATES },
+      FieldNames: ["Id", "State", "Status"],
+    }),
+  );
+  return countCampaigns(result.Campaigns ?? []);
+}
+
 export function registerClientTools(server: McpServer, client: YandexDirectClient): void {
   server.registerTool(
     "list_clients",
@@ -95,7 +215,7 @@ export function registerClientTools(server: McpServer, client: YandexDirectClien
       title: "Клиенты и кабинеты в управлении",
       annotations: READ_ONLY,
       description:
-        "Перечисляет рекламодателей, с которыми может работать токен: клиентов агентства (AgencyClients.get) и кабинеты в управлении из YANDEX_DIRECT_CLIENTS. Логин из ответа передаётся в параметр client_login любого инструмента данных — так один сервер работает со всеми клиентами без перезапуска. accountType=agency — токен агентства: без client_login (и без YANDEX_DIRECT_LOGIN) инструменты видят собственный аккаунт агентства, где обычно нет кампаний. accountType=advertiser — обычный аккаунт: API не перечисляет кабинеты, где этот логин представитель, поэтому список есть только если его задали в YANDEX_DIRECT_CLIENTS. Архивные клиенты агентства по умолчанию скрыты.",
+        "Перечисляет рекламодателей, с которыми может работать токен: клиентов агентства (AgencyClients.get) и кабинеты в управлении из YANDEX_DIRECT_CLIENTS. Логин из ответа передаётся в параметр client_login любого инструмента данных — так один сервер работает со всеми клиентами без перезапуска. accountType=agency — токен агентства: без client_login (и без YANDEX_DIRECT_LOGIN) инструменты видят собственный аккаунт агентства, где обычно нет кампаний. accountType=advertiser — обычный аккаунт: API не перечисляет кабинеты, где этот логин представитель, поэтому список есть только если его задали в YANDEX_DIRECT_CLIENTS. Архивные клиенты агентства по умолчанию скрыты. Сводка по всем клиентам сразу (баланс, кампании) — clients_overview.",
       inputSchema: {
         search: z
           .string()
@@ -141,6 +261,99 @@ export function registerClientTools(server: McpServer, client: YandexDirectClien
             : {}),
           ...(list.accountType === "advertiser" && list.clients.length === 0
             ? { note: ADVERTISER_EMPTY_NOTE }
+            : {}),
+        });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "clients_overview",
+    {
+      title: "Сводка по клиентам",
+      annotations: READ_ONLY,
+      description:
+        "Сводка по всем клиентам агентства и кабинетам в управлении за один вызов — для вопросов вроде «что у меня по аккаунтам в управлении»: по каждому клиенту баланс общего счёта и число кампаний по состояниям (on — идут или могут идти, suspended — остановлены пользователем, off — не идут по другой причине, ended) и статусам модерации (moderation, rejected, draft). Архивные кампании не считаются. Клиенты — из list_clients, либо явный список logins. Ошибка по одному клиенту (нет доступа, нет общего счёта) не прерывает остальных и попадает в его строку. Расхода и кликов здесь нет: статистика по клиенту — get_statistics с client_login. Не вызывать list_campaigns по каждому клиенту в цикле — эта сводка дешевле. Тратит баллы API каждого клиента: один запрос кампаний на клиента и один запрос баланса на 50 клиентов.",
+      inputSchema: {
+        logins: z
+          .array(z.string().trim().min(1))
+          .max(OVERVIEW_MAX_CLIENTS)
+          .optional()
+          .describe("Только эти логины клиентов. По умолчанию — все из list_clients."),
+        search: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("Только клиенты, у которых логин или название содержит эту подстроку."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(OVERVIEW_MAX_CLIENTS)
+          .optional()
+          .describe(`Сколько клиентов обойти, 1–${OVERVIEW_MAX_CLIENTS}. По умолчанию ${OVERVIEW_DEFAULT_CLIENTS}.`),
+      },
+    },
+    async ({ logins, search, limit }) => {
+      try {
+        let accountType: ClientList["accountType"] | undefined;
+        let entries: ClientEntry[];
+        if (logins?.length) {
+          entries = logins.map((login) => ({ login, source: "config" as const }));
+        } else {
+          const list = await fetchClients(client);
+          accountType = list.accountType;
+          entries = list.clients;
+        }
+        const needle = search?.toLowerCase();
+        if (needle) {
+          entries = entries.filter(
+            (c) => c.login.toLowerCase().includes(needle) || c.name?.toLowerCase().includes(needle),
+          );
+        }
+        if (entries.length === 0) {
+          return ok({
+            ...(accountType ? { accountType } : {}),
+            total: 0,
+            clients: [],
+            note: accountType === "advertiser" && !needle ? ADVERTISER_EMPTY_NOTE : "Под фильтр не попал ни один клиент.",
+          });
+        }
+        const cap = limit ?? OVERVIEW_DEFAULT_CLIENTS;
+        const chosen = entries.slice(0, cap);
+        const op = currentOperation();
+
+        const balances = await fetchBalances(client, chosen.map((c) => c.login));
+        let done = 0;
+        const rows = await mapLimit(chosen, OVERVIEW_CONCURRENCY, async (entry): Promise<ClientSummary> => {
+          throwIfCancelled(op);
+          const row: ClientSummary = { login: entry.login, name: entry.name, currency: entry.currency };
+          const balance = balances.get(entry.login.toLowerCase());
+          if (typeof balance === "string") row.balanceError = balance;
+          else if (balance) row.balance = balance;
+          try {
+            row.campaigns = await summarizeCampaigns(client, entry.login);
+          } catch (err) {
+            row.error = message(err);
+          }
+          op.progress(`Сводка по клиентам: ${++done}/${chosen.length}`);
+          return row;
+        });
+
+        const failed = rows.filter((r) => r.error).length;
+        return ok({
+          ...(accountType ? { accountType } : {}),
+          total: entries.length,
+          clients: rows,
+          ...(failed ? { failed } : {}),
+          ...(entries.length > chosen.length
+            ? {
+                _truncated: true,
+                _truncatedNote: `Обойдены первые ${chosen.length} из ${entries.length} клиентов — сузьте выбор через search/logins или поднимите limit.`,
+              }
             : {}),
         });
       } catch (e) {

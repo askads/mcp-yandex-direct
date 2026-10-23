@@ -46,6 +46,7 @@ API не умеет перечислять кабинеты, где логин �
 
 ## Связанные MCP-инструменты
 
+- [Сводка по клиентам](./clients-overview.md) — `clients_overview`
 - [Завершить подключение](./finish-login.md) — `finish_login`
 - [Данные аккаунта](./get-account-info.md) — `get_account_info`
 - [Баланс аккаунта](./get-balance.md) — `get_balance`
