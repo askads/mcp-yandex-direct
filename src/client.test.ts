@@ -652,6 +652,18 @@ async function withTempConfig<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Runs with the secret of the user's own OAuth app set — the only setup that can refresh. */
+async function withOwnAppSecret<T>(fn: () => T | Promise<T>): Promise<T> {
+  const saved = process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET;
+  process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET = "own-secret";
+  try {
+    return await fn();
+  } finally {
+    if (saved === undefined) delete process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET;
+    else process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET = saved;
+  }
+}
+
 /** Asserts the rejection is an AuthRequiredError pinned to the exact product text. */
 function isAuthRequiredError(err: unknown): boolean {
   assert.ok(err instanceof AuthRequiredError, "must be an AuthRequiredError");
@@ -739,7 +751,7 @@ test("a login mid-session takes effect on the very next call — no new client, 
 });
 
 test("call() re-mints a revoked stored token on error 53 and replays once", async () => {
-  await withTempConfig(async () => {
+  await withOwnAppSecret(() => withTempConfig(async () => {
     writeCredentials({ access_token: "dead", refresh_token: "rt", obtained_at: Date.now() });
     let calls = 0;
     const mock = mockFetch((url) => {
@@ -766,7 +778,7 @@ test("call() re-mints a revoked stored token on error 53 and replays once", asyn
     } finally {
       mock.restore();
     }
-  });
+  }));
 });
 
 test("call() does not try to refresh an env token on error 53", async () => {
@@ -819,7 +831,7 @@ test("53 under a Client-Login is reported as no access to that client, not as th
 });
 
 test("53 under a Client-Login after a successful refresh + replay is no access, too", async () => {
-  await withTempConfig(async () => {
+  await withOwnAppSecret(() => withTempConfig(async () => {
     writeCredentials({ access_token: "alive", refresh_token: "rt", obtained_at: Date.now() });
     const mock = mockFetch((url) =>
       url.includes("oauth.yandex.ru")
@@ -830,6 +842,22 @@ test("53 under a Client-Login after a successful refresh + replay is no access, 
       const client = new YandexDirectClient({ lang: "ru", sandbox: false, login: "env-client" });
       await assert.rejects(() => client.call("clients", "get", {}), ClientAccessError);
       assert.equal(mock.calls.length, 3, "API → refresh → one replay, then stop");
+    } finally {
+      mock.restore();
+    }
+  }));
+});
+
+test("53 on a stored token without the own app's secret: log in again, no doomed refresh", async () => {
+  await withTempConfig(async () => {
+    writeCredentials({ access_token: "revoked", refresh_token: "rt", obtained_at: Date.now() });
+    const mock = mockFetch(() => AUTH_53());
+    try {
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+      const err = await client.call("campaigns", "get", {}).catch((e) => e);
+      assert.ok(err instanceof AuthRequiredError, String(err));
+      assert.match(err.message, /start_login/);
+      assert.equal(mock.calls.length, 1, "no request to oauth.yandex.ru — it would only answer Wrong client secret");
     } finally {
       mock.restore();
     }

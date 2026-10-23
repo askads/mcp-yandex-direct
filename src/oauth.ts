@@ -30,6 +30,17 @@ export function oauthClientId(): string {
   return process.env.YANDEX_DIRECT_OAUTH_CLIENT_ID || DEFAULT_CLIENT_ID;
 }
 
+/**
+ * The secret of the user's OWN OAuth app, when they configured one. Yandex refuses
+ * `grant_type=refresh_token` without a secret even for a token minted through PKCE
+ * ("invalid_client: Wrong client secret", checked live; the docs call the field
+ * optional) — so the built-in public app cannot refresh at all, and a refresh is only
+ * attempted with this set. The PKCE token lives about a year; then the user logs in again.
+ */
+export function oauthClientSecret(): string | undefined {
+  return process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET || undefined;
+}
+
 export interface PkcePair {
   verifier: string;
   challenge: string;
@@ -132,10 +143,14 @@ export async function exchangeCode(params: {
   );
 }
 
-/** Trades a refresh token for a fresh access token (same public-client rules). */
+/**
+ * Trades a refresh token for a fresh access token. Needs the app's secret: Yandex
+ * accepts no refresh from a public client (see {@link oauthClientSecret}).
+ */
 export async function refreshTokens(params: {
   refreshToken: string;
   clientId: string;
+  clientSecret: string;
   fetchImpl?: typeof fetch;
 }): Promise<TokenResponse> {
   return postToken(
@@ -143,6 +158,7 @@ export async function refreshTokens(params: {
       grant_type: "refresh_token",
       refresh_token: params.refreshToken,
       client_id: params.clientId,
+      client_secret: params.clientSecret,
     },
     params.fetchImpl,
   );
@@ -213,7 +229,7 @@ function describeOAuthError(status: number, body: unknown): string {
     case "invalid_client":
       return (
         "Яндекс OAuth не принял приложение (invalid_client). " +
-        "Если задан YANDEX_DIRECT_OAUTH_CLIENT_ID — проверьте его; " +
+        "Если заданы YANDEX_DIRECT_OAUTH_CLIENT_ID или YANDEX_DIRECT_OAUTH_CLIENT_SECRET — проверьте их; " +
         "приложение должно быть с Redirect URI https://oauth.yandex.ru/verification_code. " +
         (description ? `Ответ Яндекса: ${description}` : "")
       ).trim();

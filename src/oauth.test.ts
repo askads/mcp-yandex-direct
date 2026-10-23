@@ -99,14 +99,16 @@ test("the code exchange sends the verifier and no client_secret", async () => {
   assert.equal(calls[0].form.get("client_secret"), null);
 });
 
-test("a refresh posts the refresh token, still without a secret", async () => {
+test("a refresh posts the refresh token with the own app's secret", async () => {
+  // Yandex refuses a refresh without a secret even for a PKCE token (live:
+  // "invalid_client: Wrong client secret"), so a refresh always carries one.
   const { impl, calls } = fakeFetch({ body: { access_token: "fresh" } });
-  const result = await refreshTokens({ refreshToken: "rt", clientId: "cid", fetchImpl: impl });
+  const result = await refreshTokens({ refreshToken: "rt", clientId: "cid", clientSecret: "sec", fetchImpl: impl });
 
   assert.equal(result.access_token, "fresh");
   assert.equal(calls[0].form.get("grant_type"), "refresh_token");
   assert.equal(calls[0].form.get("refresh_token"), "rt");
-  assert.equal(calls[0].form.get("client_secret"), null);
+  assert.equal(calls[0].form.get("client_secret"), "sec");
 });
 
 test("an expired code explains that it is one-shot and 10 minutes long", async () => {

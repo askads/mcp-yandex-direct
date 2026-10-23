@@ -24,6 +24,18 @@ async function withTempConfig<T>(run: () => T | Promise<T>): Promise<T> {
   }
 }
 
+/** Runs with the secret of the user's own OAuth app set — the only setup that can refresh. */
+async function withOwnAppSecret<T>(fn: () => T | Promise<T>): Promise<T> {
+  const saved = process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET;
+  process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET = "own-secret";
+  try {
+    return await fn();
+  } finally {
+    if (saved === undefined) delete process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET;
+    else process.env.YANDEX_DIRECT_OAUTH_CLIENT_SECRET = saved;
+  }
+}
+
 test("with nothing configured, getToken explains how to connect", async () => {
   await withTempConfig(async () => {
     const store = new TokenStore(undefined);
@@ -97,7 +109,7 @@ test("a truncated credentials file reads as 'not connected', not as an empty tok
 });
 
 test("an expired token is refreshed transparently and the new one is stored", async () => {
-  await withTempConfig(async () => {
+  await withOwnAppSecret(() => withTempConfig(async () => {
     writeCredentials({
       access_token: "old",
       refresh_token: "rt",
@@ -115,13 +127,13 @@ test("an expired token is refreshed transparently and the new one is stored", as
     assert.equal(await store.getToken(), "new");
     assert.equal(readCredentials()?.access_token, "new");
     assert.equal(readCredentials()?.refresh_token, "rt2", "the rotated refresh token must persist");
-  });
+  }));
 });
 
 test("a refresh response without a refresh_token keeps the stored one", async () => {
   // Yandex does not always rotate the refresh token; storing `undefined` over the
   // old one would make the very next expiry unrecoverable without a new login.
-  await withTempConfig(async () => {
+  await withOwnAppSecret(() => withTempConfig(async () => {
     writeCredentials({
       access_token: "old",
       refresh_token: "keep-me",
@@ -138,13 +150,37 @@ test("a refresh response without a refresh_token keeps the stored one", async ()
     const store = new TokenStore(undefined, fetchImpl);
     assert.equal(await store.getToken(), "new");
     assert.equal(readCredentials()?.refresh_token, "keep-me", "the old refresh token must survive");
-  });
+  }));
 });
 
 test("an expired token with nothing to refresh from asks for a new login", async () => {
   await withTempConfig(async () => {
     writeCredentials({ access_token: "old", expires_at: Date.now() - 1000, obtained_at: 1 });
     await assert.rejects(() => new TokenStore(undefined).getToken(), /start_login/);
+  });
+});
+
+test("an expired token is NOT refreshed with the built-in app: no secret, ask for a new login", async () => {
+  await withTempConfig(async () => {
+    writeCredentials({ access_token: "old", refresh_token: "rt", expires_at: Date.now() - 1000, obtained_at: 1 });
+    let fetched = false;
+    const fetchImpl = (async () => {
+      fetched = true;
+      throw new Error("must not be called");
+    }) as unknown as typeof fetch;
+    const store = new TokenStore(undefined, fetchImpl);
+    assert.equal(store.canRefresh(), false);
+    assert.equal(store.status().canRefresh, false);
+    await assert.rejects(() => store.getToken(), (err: Error) => err instanceof AuthRequiredError && /start_login/.test(err.message) && !/secret/i.test(err.message));
+    assert.equal(fetched, false, "a refresh that Yandex is sure to refuse is never sent");
+  });
+});
+
+test("canRefresh needs both a stored refresh token and the own app's secret", async () => {
+  await withTempConfig(async () => {
+    writeCredentials({ access_token: "a", refresh_token: "rt", obtained_at: 1 });
+    assert.equal(new TokenStore(undefined).canRefresh(), false);
+    await withOwnAppSecret(() => assert.equal(new TokenStore(undefined).canRefresh(), true));
   });
 });
 

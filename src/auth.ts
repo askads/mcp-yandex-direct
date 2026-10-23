@@ -5,7 +5,7 @@ import {
   writeCredentials,
   type StoredCredentials,
 } from "./credentials.js";
-import { oauthClientId, refreshTokens, type TokenResponse } from "./oauth.js";
+import { oauthClientId, oauthClientSecret, refreshTokens, type TokenResponse } from "./oauth.js";
 
 /**
  * Raised when a tool needs a token and none is available. The message is the
@@ -36,6 +36,15 @@ export interface AuthStatus {
   canRefresh: boolean;
   path: string;
 }
+
+/**
+ * The stored token stopped working (expired after its year, or revoked in Yandex ID) and
+ * cannot be refreshed — the built-in app has no secret. Logging in again is the fix.
+ */
+export const RELOGIN_MESSAGE =
+  "Сохранённый токен Директа больше не действует: истёк его срок (около года) или доступ отозван " +
+  "в Яндекс ID. Обновить его автоматически нельзя — встроенное приложение не имеет секрета. " +
+  "Вызовите start_login и подключитесь заново.";
 
 export const NOT_CONNECTED_MESSAGE =
   "Яндекс Директ не подключён: нет токена доступа. " +
@@ -75,12 +84,7 @@ export class TokenStore {
 
     if (!isExpired(stored)) return stored.access_token;
 
-    if (!stored.refresh_token) {
-      throw new AuthRequiredError(
-        "Срок действия сохранённого токена Директа истёк, а обновить его нечем. " +
-          "Вызовите start_login и пройдите подключение заново.",
-      );
-    }
+    if (!stored.refresh_token || !oauthClientSecret()) throw new AuthRequiredError(RELOGIN_MESSAGE);
     const refreshed = await this.refresh(stored.refresh_token);
     return refreshed.access_token;
   }
@@ -92,14 +96,12 @@ export class TokenStore {
    */
   async refresh(refreshToken?: string): Promise<StoredCredentials> {
     const token = refreshToken ?? readCredentials()?.refresh_token;
-    if (!token) {
-      throw new AuthRequiredError(
-        "Нет refresh-токена для обновления доступа — вызовите start_login заново.",
-      );
-    }
+    const secret = oauthClientSecret();
+    if (!token || !secret) throw new AuthRequiredError(RELOGIN_MESSAGE);
     const response = await refreshTokens({
       refreshToken: token,
       clientId: oauthClientId(),
+      clientSecret: secret,
       fetchImpl: this.fetchImpl,
     });
     // Yandex does not always rotate the refresh token; when the response omits
@@ -108,9 +110,18 @@ export class TokenStore {
     return this.save({ ...response, refresh_token: response.refresh_token ?? token });
   }
 
-  /** True when a stored refresh token exists — i.e. a retry after an auth error is worth trying. */
+  /**
+   * True when a refresh can actually succeed: a stored refresh token AND the secret of the
+   * user's own app. Without the secret Yandex refuses every refresh, so trying one would
+   * only bury the real error under "Wrong client secret".
+   */
   canRefresh(): boolean {
-    return !this.envToken && Boolean(readCredentials()?.refresh_token);
+    return !this.envToken && Boolean(readCredentials()?.refresh_token) && Boolean(oauthClientSecret());
+  }
+
+  /** True when the token in use is the stored one (not YANDEX_DIRECT_TOKEN). */
+  usesStoredToken(): boolean {
+    return !this.envToken && Boolean(readCredentials());
   }
 
   /** Persists a token response; returns what was stored (never logged). */
@@ -141,7 +152,7 @@ export class TokenStore {
       source: "stored",
       expiresAt: stored.expires_at ? new Date(stored.expires_at).toISOString() : undefined,
       obtainedAt: new Date(stored.obtained_at).toISOString(),
-      canRefresh: Boolean(stored.refresh_token),
+      canRefresh: Boolean(stored.refresh_token) && Boolean(oauthClientSecret()),
       path,
     };
   }

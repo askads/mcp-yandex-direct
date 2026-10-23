@@ -1,4 +1,4 @@
-import { AuthRequiredError, TokenStore } from "./auth.js";
+import { AuthRequiredError, RELOGIN_MESSAGE, TokenStore } from "./auth.js";
 import { currentClientLogin } from "./clientLogin.js";
 import type { ApiError, YandexDirectConfig } from "./types.js";
 import {
@@ -150,6 +150,9 @@ export class YandexDirectClient {
       }
     }
     if (login) throw new ClientAccessError(error, login);
+    // A stored token that cannot be refreshed (the built-in app has no secret) is dead for
+    // good: say "log in again", not a bare [53].
+    if (this.tokens.usesStoredToken()) throw new AuthRequiredError(RELOGIN_MESSAGE);
     throw new YandexDirectError(error);
   }
 
@@ -448,6 +451,9 @@ export class YandexDirectClient {
           await this.refreshOrExplain();
           attempt--;
           continue;
+        }
+        if (data.error_code === AUTH_ERROR_CODE && this.tokens.usesStoredToken()) {
+          throw new AuthRequiredError(RELOGIN_MESSAGE);
         }
         const detail = data.error_detail ? `: ${data.error_detail}` : "";
         throw new Error(`Ошибка Live v4 "${method}": [${data.error_code}] ${data.error_str ?? ""}${detail}`);

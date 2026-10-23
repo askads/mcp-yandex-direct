@@ -21,17 +21,23 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
   report polling. Every request path (`call`/`callV4`/`report`) resolves the token through the
   `TokenStore` per request; a missing token raises `AuthRequiredError` before building the
   request, the retries and fetch. An authorization error (code 53) on a stored token triggers
-  one silent refresh + replay per request.
+  one silent refresh + replay per request — only when a refresh can succeed (see oauth.ts);
+  otherwise it raises `AuthRequiredError` (log in again). A 53 under a `Client-Login` is
+  `ClientAccessError`: Direct answers "no access to that client" with the same code.
 - `src/oauth.ts` — the OAuth flow: PKCE pair (S256), authorize URL against
   `https://oauth.yandex.ru/verification_code`, code exchange and refresh. **No `client_secret`** —
-  this is a public client, and a secret inside an npm package would protect nothing. The pending
+  this is a public client, and a secret inside an npm package would protect nothing. Yandex
+  therefore refuses every refresh of the built-in app's tokens ("Wrong client secret", checked
+  live — the docs say otherwise): the PKCE token lives ~a year, then the user logs in again.
+  Refresh only runs with `YANDEX_DIRECT_OAUTH_CLIENT_SECRET` (the user's own app). The pending
   verifier lives in one module-level slot (one stdio server = one user); a second `start_login`
   replaces it.
 - `src/credentials.ts` — `~/.config/mcp-yandex-direct/credentials.json`, mode `0600`. An
   unparsable file reads as "not connected", never as an empty token.
 - `src/auth.ts` — `TokenStore`: resolves the token per request (env wins over stored), refreshes
-  on expiry, and raises `AuthRequiredError` whose *message* is the product — it is the only text
-  the user ever sees about a missing token, and it names both fixes (start_login, env variable).
+  on expiry when it can (`canRefresh`: refresh token + own app's secret), and raises
+  `AuthRequiredError` whose *message* is the product — it is the only text the user ever sees
+  about a missing token, and it names both fixes (start_login, env variable).
 - `src/tools/*.ts` — one file per service, each exports `register<Name>Tools(server, client)`;
   `src/tools/auth.ts` (auth_status, start_login, finish_login, logout) additionally takes the
   `TokenStore`.
