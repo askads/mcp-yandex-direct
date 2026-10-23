@@ -94,3 +94,25 @@ export class DirectRateLimitError extends YandexDirectError {
       reqId;
   }
 }
+
+/**
+ * Code 53 on a request that carried Client-Login. Direct answers "this token may not act for
+ * that login" with the same 53 as a dead token (an unknown login gets 8800 instead), so the
+ * message names both causes and the cheap way to tell them apart — never the failure of a
+ * token refresh that was beside the point.
+ */
+export class ClientAccessError extends YandexDirectError {
+  readonly login: string;
+
+  constructor(err: ApiError, login: string) {
+    super(err);
+    this.name = "ClientAccessError";
+    this.login = login;
+    const reqId = err.request_id ? ` (request_id: ${err.request_id})` : "";
+    this.message =
+      `[${err.error_code}] ${err.error_string}: у токена нет доступа к кабинету «${login}» через Client-Login ` +
+      "— этот логин не подключён к аккаунту токена как клиент агентства или кабинет в управлении. " +
+      "Проверить: тот же инструмент без client_login работает — значит, дело в доступе к этому кабинету, а не в токене." +
+      reqId;
+  }
+}

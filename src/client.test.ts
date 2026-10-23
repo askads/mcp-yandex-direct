@@ -7,7 +7,9 @@ import { YandexDirectClient, methodRateLimit, parseUnits } from "./client.js";
 import { OperationCancelledError, runOperation, timing } from "./operation.js";
 import { AuthRequiredError, NOT_CONNECTED_MESSAGE, TokenStore } from "./auth.js";
 import { writeCredentials } from "./credentials.js";
+import { withClientLogin } from "./clientLogin.js";
 import {
+  ClientAccessError,
   DIRECT_RATE_LIMITED_MARKER,
   DIRECT_UNAVAILABLE_MARKER,
   DirectRateLimitError,
@@ -781,6 +783,83 @@ test("call() does not try to refresh an env token on error 53", async () => {
       const client = new YandexDirectClient({ token: "env-token", lang: "ru", sandbox: false });
       await assert.rejects(() => client.call("campaigns", "get", {}), /\[53\]/);
       assert.equal(mock.calls.length, 1, "no refresh, no replay for an env token");
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+const AUTH_53 = () =>
+  new Response(JSON.stringify({ error: { error_code: 53, error_string: "Ошибка авторизации", request_id: "R53" } }), {
+    status: 200,
+  });
+
+test("53 under a Client-Login is reported as no access to that client, not as the refresh failure", async () => {
+  await withTempConfig(async () => {
+    // Live behaviour: a login the token may not act for answers 53 — and the refresh that
+    // follows fails for its own reasons. The user must see the first cause, not the second.
+    writeCredentials({ access_token: "alive", refresh_token: "rt", obtained_at: Date.now() });
+    const mock = mockFetch((url) =>
+      url.includes("oauth.yandex.ru")
+        ? new Response(JSON.stringify({ error: "invalid_client", error_description: "Wrong client secret" }), { status: 400 })
+        : AUTH_53(),
+    );
+    try {
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false });
+      const err = await withClientLogin("askads", () => client.call("clients", "get", {})).catch((e) => e);
+      assert.ok(err instanceof ClientAccessError, String(err));
+      assert.equal(err.code, 53);
+      assert.match(err.message, /нет доступа к кабинету «askads»/);
+      assert.match(err.message, /без client_login/);
+      assert.doesNotMatch(err.message, /client secret/i);
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test("53 under a Client-Login after a successful refresh + replay is no access, too", async () => {
+  await withTempConfig(async () => {
+    writeCredentials({ access_token: "alive", refresh_token: "rt", obtained_at: Date.now() });
+    const mock = mockFetch((url) =>
+      url.includes("oauth.yandex.ru")
+        ? new Response(JSON.stringify({ access_token: "reborn", refresh_token: "rt2" }), { status: 200 })
+        : AUTH_53(),
+    );
+    try {
+      const client = new YandexDirectClient({ lang: "ru", sandbox: false, login: "env-client" });
+      await assert.rejects(() => client.call("clients", "get", {}), ClientAccessError);
+      assert.equal(mock.calls.length, 3, "API → refresh → one replay, then stop");
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test("53 without a Client-Login stays a plain authorization error", async () => {
+  await withTempConfig(async () => {
+    const mock = mockFetch(() => AUTH_53());
+    try {
+      const client = new YandexDirectClient({ token: "env-token", lang: "ru", sandbox: false });
+      const err = await client.call("clients", "get", {}).catch((e) => e);
+      assert.ok(err instanceof YandexDirectError && !(err instanceof ClientAccessError));
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+test("report(): 53 under a Client-Login is no access to that client", async () => {
+  await withTempConfig(async () => {
+    const mock = mockFetch(
+      () => new Response(JSON.stringify({ error: { error_code: "53", error_string: "Ошибка авторизации" } }), { status: 400 }),
+    );
+    try {
+      const client = new YandexDirectClient({ token: "env-token", lang: "ru", sandbox: false });
+      await assert.rejects(
+        () => withClientLogin("askads", () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" })),
+        ClientAccessError,
+      );
     } finally {
       mock.restore();
     }

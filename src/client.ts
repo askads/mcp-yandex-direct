@@ -2,6 +2,7 @@ import { AuthRequiredError, TokenStore } from "./auth.js";
 import { currentClientLogin } from "./clientLogin.js";
 import type { ApiError, YandexDirectConfig } from "./types.js";
 import {
+  ClientAccessError,
   DIRECT_RATE_LIMITED_MARKER,
   DirectRateLimitError,
   DirectUnavailableError,
@@ -129,6 +130,27 @@ export class YandexDirectClient {
           "Вызовите start_login и подключитесь заново.",
       );
     }
+  }
+
+  /**
+   * Handles a code 53 from v5/Reports: returns when the request should be replayed with a
+   * refreshed token, throws otherwise. With a Client-Login on the request, 53 most often
+   * means "no access to that client", not a dead token — so a failed refresh (or a replay
+   * that still gets 53) surfaces as {@link ClientAccessError}, not as the refresh's error.
+   */
+  private async afterAuthError(error: ApiError, refreshed: boolean): Promise<void> {
+    const login = this.clientLogin();
+    if (!refreshed && this.tokens.canRefresh()) {
+      try {
+        await this.refreshOrExplain();
+        return;
+      } catch (err) {
+        if (login) throw new ClientAccessError(error, login);
+        throw err;
+      }
+    }
+    if (login) throw new ClientAccessError(error, login);
+    throw new YandexDirectError(error);
   }
 
   /** Backoff before a retry: honors Retry-After when present, else exponential (capped at 30s). */
@@ -332,9 +354,9 @@ export class YandexDirectClient {
         // The API answers a dead stored token with code 53 (authorization error).
         // Re-mint once and replay; the retry budget above is for transport trouble
         // and must not be spent here.
-        if (data.error.error_code === AUTH_ERROR_CODE && !refreshed && this.tokens.canRefresh()) {
+        if (data.error.error_code === AUTH_ERROR_CODE) {
+          await this.afterAuthError(data.error, refreshed);
           refreshed = true;
-          await this.refreshOrExplain();
           attempt--;
           continue;
         }
@@ -606,9 +628,9 @@ export class YandexDirectClient {
         rate.reset();
         // Reports answers a dead stored token with the same code 53 — one silent
         // re-mint + replay, without spending the poll budget on it.
-        if (parsed.error.error_code === AUTH_ERROR_CODE && !refreshed && this.tokens.canRefresh()) {
+        if (parsed.error.error_code === AUTH_ERROR_CODE) {
+          await this.afterAuthError(parsed.error, refreshed);
           refreshed = true;
-          await this.refreshOrExplain();
           attempt--;
           continue;
         }
