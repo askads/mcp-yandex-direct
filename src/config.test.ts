@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { loadConfig } from "./config.js";
+import { loadConfig, parseLogins } from "./config.js";
 
 function withEnv(vars: Record<string, string | undefined>, run: () => void): void {
   const saved = new Map(Object.keys(vars).map((k) => [k, process.env[k]]));
@@ -61,5 +61,13 @@ test("the optional variables stay lenient: junk falls back to the default, never
 test("a configured server loads without throwing", () => {
   withEnv({ YANDEX_DIRECT_TOKEN: "t0ken" }, () => {
     assert.equal(loadConfig().token, "t0ken");
+  });
+});
+
+test("YANDEX_DIRECT_CLIENTS: commas or spaces, duplicates dropped case-insensitively", () => {
+  assert.deepEqual(parseLogins(" a, b  c;A ,, "), ["a", "b", "c"]);
+  assert.deepEqual(parseLogins(undefined), []);
+  withEnv({ YANDEX_DIRECT_CLIENTS: "x,y" }, () => {
+    assert.deepEqual(loadConfig().clients, ["x", "y"]);
   });
 });

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { TokenStore } from "../auth.js";
 import { readCredentials } from "../credentials.js";
 import { clearPendingLogin, startLogin } from "../oauth.js";
+import { YandexDirectError } from "../types.js";
 import { registerAuthTools } from "./auth.js";
 
 type Args = Record<string, unknown>;
@@ -70,6 +71,37 @@ test("finish_login: a failed verification call is a caveat, not a failed login",
       assert.match(text, /сеть недоступна/, "the check's own error must be relayed");
       assert.ok(!text.includes("accountLogin"), "no login was verified, so none may be claimed");
       assert.equal(readCredentials()?.access_token, "tok", "the token really is on disk");
+    } finally {
+      globalThis.fetch = savedFetch;
+      clearPendingLogin();
+    }
+  });
+});
+
+test("finish_login: code 8000 means an agency — point at list_clients, not at an error", async () => {
+  await withTempConfig(async () => {
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({ access_token: "tok", refresh_token: "rt", expires_in: 3600 }),
+      }) as unknown as Response) as unknown as typeof fetch;
+    try {
+      startLogin();
+      const tools = harness(async () => {
+        throw new YandexDirectError({ error_code: 8000, error_string: "Не указан Client-Login" });
+      });
+
+      const res = await tools.finish_login({ code: "1234567" });
+
+      assert.notEqual(res.isError, true);
+      const body = JSON.parse(res.content[0].text);
+      assert.equal(body.connected, true);
+      assert.equal(body.accountType, "agency");
+      assert.match(body.note, /list_clients/);
+      assert.match(body.note, /client_login/);
     } finally {
       globalThis.fetch = savedFetch;
       clearPendingLogin();

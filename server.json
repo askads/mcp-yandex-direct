@@ -27,7 +27,12 @@
         },
         {
           "name": "YANDEX_DIRECT_LOGIN",
-          "description": "Client login to target a specific account on agency tokens.",
+          "description": "Default client login on agency tokens; any tool can override it with client_login.",
+          "isRequired": false
+        },
+        {
+          "name": "YANDEX_DIRECT_CLIENTS",
+          "description": "Comma-separated logins of managed (non-agency) accounts, shown by list_clients.",
           "isRequired": false
         },
         {

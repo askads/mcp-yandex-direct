@@ -1,7 +1,13 @@
 export interface YandexDirectConfig {
   /** OAuth token; absent on a degraded (unconfigured) start — see loadConfig in config.ts. */
   token?: string;
+  /** Default Client-Login (YANDEX_DIRECT_LOGIN); a tool call's `client_login` overrides it. */
   login?: string;
+  /**
+   * Logins of the accounts this token manages (YANDEX_DIRECT_CLIENTS). The only source of the
+   * list for a non-agency token — the API has no method that enumerates them.
+   */
+  clients?: string[];
   lang: string;
   sandbox: boolean;
   /** Per-request timeout in milliseconds. Defaults to 60_000. */

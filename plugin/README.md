@@ -23,7 +23,8 @@ environment variables, so nothing has to be exported in your shell. Sensitive va
 your operating system's credential store rather than to `settings.json`.
 
 - **Yandex Direct OAuth token** — OAuth token for the Yandex Direct API. Stored in your operating system's credential store, never in settings.json. Leave empty to sign in from the conversation instead. Stored securely.
-- **Client login** — Client login to operate on when the token belongs to an agency account. Leave empty to use the token's own account.
+- **Client login** — Default client login when the token belongs to an agency account; any tool can also take client_login per call. Leave empty to use the token's own account.
+- **Managed accounts** — Comma-separated logins of the accounts you manage as a representative (not via an agency). The API cannot list them, so list_clients shows these. Leave empty if none.
 - **Sandbox mode** — Set to true to run against the Yandex Direct sandbox, where writes do not spend real money. Leave as false for the live account.
 - **Anonymous telemetry** — Set to 0 to disable the anonymous usage telemetry the server sends by default. Leave as 1 to keep it on.
 

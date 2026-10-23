@@ -1,4 +1,5 @@
 import { AuthRequiredError, TokenStore } from "./auth.js";
+import { currentClientLogin } from "./clientLogin.js";
 import type { ApiError, YandexDirectConfig } from "./types.js";
 import {
   DIRECT_RATE_LIMITED_MARKER,
@@ -95,6 +96,11 @@ export class YandexDirectClient {
     this.tokens = tokens ?? new TokenStore(config.token);
   }
 
+  /** Managed-account logins from YANDEX_DIRECT_CLIENTS (empty when unset). */
+  get configuredClients(): string[] {
+    return this.config.clients ?? [];
+  }
+
   /** The most recent API points quota seen in a Units response header, if any. */
   get units(): Units | undefined {
     return this.latestUnits;
@@ -182,8 +188,18 @@ export class YandexDirectClient {
       "Accept-Language": this.config.lang,
       "Content-Type": "application/json; charset=utf-8",
     };
-    if (this.config.login) headers["Client-Login"] = this.config.login;
+    const login = this.clientLogin();
+    if (login) headers["Client-Login"] = login;
     return { ...headers, ...extra };
+  }
+
+  /**
+   * The advertiser of the current request: the tool call's `client_login` when it chose one
+   * (`null` = deliberately none), else YANDEX_DIRECT_LOGIN.
+   */
+  clientLogin(): string | undefined {
+    const scoped = currentClientLogin();
+    return scoped === undefined ? this.config.login : scoped ?? undefined;
   }
 
   /** Calls a JSON service (campaigns, ads, keywords, ...) and returns its `result` object. */

@@ -9,6 +9,8 @@ import {
   pendingLogin,
   startLogin,
 } from "../oauth.js";
+import { YandexDirectError } from "../types.js";
+import { AGENCY_NEEDS_CLIENT_CODE } from "./clients.js";
 import { fail, ok, READ_ONLY, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
 
 /**
@@ -123,6 +125,20 @@ export function registerAuthTools(
               "Покажите пользователю логин аккаунта: если это не тот кабинет, повторите start_login под нужным аккаунтом.",
           });
         } catch (verifyError) {
+          // An agency token without Client-Login answers 8000: the login worked, the account
+          // just has no campaigns of its own — point at its clients instead of at an error.
+          if (verifyError instanceof YandexDirectError && verifyError.code === AGENCY_NEEDS_CLIENT_CODE) {
+            return ok({
+              connected: true,
+              accountType: "agency",
+              storedAt: tokens.status().path,
+              grantedScope: response.scope,
+              note:
+                "Подключение готово. Это агентский аккаунт: кампании лежат у клиентов агентства. " +
+                "Вызовите list_clients, покажите пользователю список и передавайте логин нужного клиента " +
+                "в параметр client_login инструментов данных.",
+            });
+          }
           const reason = verifyError instanceof Error ? verifyError.message : String(verifyError);
           return ok({
             connected: true,

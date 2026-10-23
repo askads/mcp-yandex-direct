@@ -14,9 +14,11 @@ and deleted by id.
 
 ## Check whose account you are in
 
-An agency token operates on the agency's own account until a client login is set. Check
+An agency token operates on the agency's own account until a client is chosen. Check
 that before trusting an empty campaign list — an empty result usually means the wrong
-account, not an empty account.
+account, not an empty account. `list_clients` lists the agency's clients (and the managed
+accounts configured in `YANDEX_DIRECT_CLIENTS`); pass the chosen login as `client_login` to
+any data tool. Each call names its client in `_client` — check it before a write.
 
 ## Filtering campaigns
 

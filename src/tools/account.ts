@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
+import { currentClientLogin } from "../clientLogin.js";
 import { fail, ok, READ_ONLY } from "./util.js";
 
 const DEFAULT_FIELDS = [
@@ -46,7 +47,7 @@ export function registerAccountTools(server: McpServer, client: YandexDirectClie
       title: "Баланс аккаунта",
       annotations: READ_ONLY,
       description:
-        "Возвращает баланс общего счёта и финансовые поля (Amount, AmountAvailableForTransfer, Currency, Discount, AccountID) через устаревший сервис AccountManagement Live v4 — единственный API Яндекс Директа, который отдаёт баланс (в v5 финансового метода нет). Amount — строка в ВАЛЮТЕ АККАУНТА (не в микроединицах); отрицательный Amount означает задолженность. По умолчанию — собственный аккаунт токена; чтобы получить конкретные общие счета, передать logins.",
+        "Возвращает баланс общего счёта и финансовые поля (Amount, AmountAvailableForTransfer, Currency, Discount, AccountID) через устаревший сервис AccountManagement Live v4 — единственный API Яндекс Директа, который отдаёт баланс (в v5 финансового метода нет). Amount — строка в ВАЛЮТЕ АККАУНТА (не в микроединицах); отрицательный Amount означает задолженность. По умолчанию — собственный аккаунт токена, а при переданном client_login — счёт этого клиента; чтобы получить несколько общих счетов разом (агентство, до 50 логинов), передать logins.",
       inputSchema: {
         logins: z
           .array(z.string())
@@ -56,10 +57,15 @@ export function registerAccountTools(server: McpServer, client: YandexDirectClie
     },
     async ({ logins }) => {
       try {
+        // Live v4 has no Client-Login header: a client chosen for this call becomes the
+        // selection instead. YANDEX_DIRECT_LOGIN deliberately does not — that default has
+        // always meant the token's own account here.
+        const scoped = currentClientLogin();
+        const selected = logins?.length ? logins : scoped ? [scoped] : undefined;
         // Money in Live v4 is already in currency units — do NOT normalizeMoney it.
         const result = await client.callV4("AccountManagement", {
           Action: "Get",
-          SelectionCriteria: logins?.length ? { Logins: logins } : {},
+          SelectionCriteria: selected ? { Logins: selected } : {},
         });
         return ok(result);
       } catch (e) {

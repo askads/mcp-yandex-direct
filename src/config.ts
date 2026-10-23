@@ -26,7 +26,7 @@ export class ConfigError extends Error {
  * before `initialize` and leaving a silent red cross. The env variable stays
  * as the alternative: set it and restart the server.
  *
- * The optional variables (LOGIN, LANG, SANDBOX, TIMEOUT_MS, MAX_RETRIES) are
+ * The optional variables (LOGIN, CLIENTS, LANG, SANDBOX, TIMEOUT_MS, MAX_RETRIES) are
  * lenient by design — an unparsable value falls back to its default, so
  * ConfigError has no live throw site today; index.ts still guards future
  * malformed-value checks with loadConfigOrDegraded.
@@ -38,9 +38,22 @@ export function loadConfig(): YandexDirectConfig {
     // An empty string reads as absent, never as an empty credential.
     token: process.env.YANDEX_DIRECT_TOKEN || undefined,
     login: process.env.YANDEX_DIRECT_LOGIN || undefined,
+    clients: parseLogins(process.env.YANDEX_DIRECT_CLIENTS),
     lang: process.env.YANDEX_DIRECT_LANG || "ru",
     sandbox: /^(1|true|yes)$/i.test(process.env.YANDEX_DIRECT_SANDBOX ?? ""),
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60_000,
     maxRetries: Number.isFinite(maxRetries) && maxRetries >= 0 ? maxRetries : 3,
   };
+}
+
+/** "a, b c" → ["a", "b", "c"]: commas or whitespace, duplicates dropped (case-insensitive). */
+export function parseLogins(value: string | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const login of (value ?? "").split(/[\s,;]+/)) {
+    if (!login || seen.has(login.toLowerCase())) continue;
+    seen.add(login.toLowerCase());
+    out.push(login);
+  }
+  return out;
 }

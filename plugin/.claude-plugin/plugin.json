@@ -28,7 +28,13 @@
     "login": {
       "type": "string",
       "title": "Client login",
-      "description": "Client login to operate on when the token belongs to an agency account. Leave empty to use the token's own account.",
+      "description": "Default client login when the token belongs to an agency account; any tool can also take client_login per call. Leave empty to use the token's own account.",
+      "default": ""
+    },
+    "clients": {
+      "type": "string",
+      "title": "Managed accounts",
+      "description": "Comma-separated logins of the accounts you manage as a representative (not via an agency). The API cannot list them, so list_clients shows these. Leave empty if none.",
       "default": ""
     },
     "sandbox": {
@@ -54,6 +60,7 @@
       "env": {
         "YANDEX_DIRECT_TOKEN": "${user_config.token}",
         "YANDEX_DIRECT_LOGIN": "${user_config.login}",
+        "YANDEX_DIRECT_CLIENTS": "${user_config.clients}",
         "YANDEX_DIRECT_SANDBOX": "${user_config.sandbox}",
         "ASKADS_TELEMETRY": "${user_config.telemetry}"
       }

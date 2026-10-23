@@ -7,6 +7,7 @@ import { YandexDirectClient } from "./client.js";
 import { ConfigError, loadConfig } from "./config.js";
 import { instrumentToolCalls, Telemetry } from "./telemetry.js";
 import { instrumentOperations } from "./operation.js";
+import { instrumentClientLogin } from "./clientLogin.js";
 import type { YandexDirectConfig } from "./types.js";
 
 /** Reads the package version so the server reports its real version to MCP clients. */
@@ -30,6 +31,7 @@ import { registerRawTool } from "./tools/raw.js";
 import { registerBidModifierTools } from "./tools/bidModifiers.js";
 import { registerAssetTools } from "./tools/assets.js";
 import { registerMediaTools } from "./tools/media.js";
+import { registerClientTools } from "./tools/clients.js";
 
 /**
  * The prose the calling model receives in the `initialize` result — the only text it
@@ -48,9 +50,10 @@ const INSTRUCTIONS =
   "get_quota), " +
   "а get_statistics запускает асинхронную задачу в сервисе Reports со своими дневными лимитами — " +
   "запрашивать один широкий период, а не цикл по дням или кампаниям. Деньги везде в валюте " +
-  "аккаунта, кроме raw_request, где они в микроединицах. Агентский токен работает с собственным " +
-  "аккаунтом агентства, пока клиент не указан в YANDEX_DIRECT_LOGIN, — проверить это, прежде чем " +
-  "верить пустому списку; фильтр по типам без UNIFIED_CAMPAIGN скрывает актуальные " +
+  "аккаунта, кроме raw_request, где они в микроединицах. Агентский токен без клиента работает с " +
+  "собственным аккаунтом агентства: клиентов агентства и кабинеты в управлении перечисляет " +
+  "list_clients, а логин нужного передаётся в client_login любого инструмента данных (по умолчанию — " +
+  "YANDEX_DIRECT_LOGIN) — проверить это, прежде чем верить пустому списку; фильтр по типам без UNIFIED_CAMPAIGN скрывает актуальные " +
   "перформанс-кампании. Запись тратит реальные деньги, если не задан YANDEX_DIRECT_SANDBOX=true, " +
   "удаление необратимо, а частично неудачный пакет всё равно возвращает HTTP 200 — читать ошибки " +
   "по каждому объекту и повторять только то, что не прошло.";
@@ -127,6 +130,8 @@ async function main(): Promise<void> {
 
   instrumentToolCalls(server, telemetry);
   instrumentOperations(server);
+  // Last, so it wraps innermost: the call's Client-Login is set inside its Operation.
+  instrumentClientLogin(server);
   server.server.oninitialized = () => {
     telemetry.setClientInfo(server.server.getClientVersion());
     // Split on purpose: `server_start` keeps meaning "a usable install started",
@@ -138,6 +143,7 @@ async function main(): Promise<void> {
 
   registerAuthTools(server, client, tokens);
   registerAccountTools(server, client);
+  registerClientTools(server, client);
   registerCampaignTools(server, client);
   registerAdGroupTools(server, client);
   registerAdTools(server, client);

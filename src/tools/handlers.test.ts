@@ -4,6 +4,7 @@ import { registerAccountTools } from "./account.js";
 import { registerStatisticsTools } from "./statistics.js";
 import { registerCampaignTools } from "./campaigns.js";
 import { registerKeywordTools } from "./keywords.js";
+import { withClientLogin } from "../clientLogin.js";
 
 type Args = Record<string, unknown>;
 type Handler = (args: Args) => Promise<{ content: { text: string }[]; isError?: boolean }>;
@@ -60,6 +61,15 @@ test("get_balance forwards logins into SelectionCriteria", async () => {
   const { calls, tools } = harness(registerAccountTools, { callResult: {} });
   await tools.get_balance({ logins: ["askads-demo"] });
   assert.deepEqual(calls[0].params.SelectionCriteria, { Logins: ["askads-demo"] });
+});
+
+test("get_balance: a per-call client_login selects that client's account (v4 has no Client-Login)", async () => {
+  const { calls, tools } = harness(registerAccountTools, { callResult: {} });
+  await withClientLogin("client-a", () => tools.get_balance({}));
+  assert.deepEqual(calls[0].params.SelectionCriteria, { Logins: ["client-a"] });
+  // Explicit logins still win.
+  await withClientLogin("client-a", () => tools.get_balance({ logins: ["x", "y"] }));
+  assert.deepEqual(calls[1].params.SelectionCriteria, { Logins: ["x", "y"] });
 });
 
 test("get_statistics infers CUSTOM_DATE from dates and builds a campaign filter", async () => {
