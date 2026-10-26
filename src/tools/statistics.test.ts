@@ -112,6 +112,16 @@ test("aggregate: field-aware — no Conversions in fieldNames omits conversion d
   assert.equal("Conversions" in a.top[0], false);
 });
 
+test("aggregate: Revenue/Profit are summed money metrics, not dimension strings", () => {
+  const fields = ["Query", "Clicks", "Cost", "Revenue", "Profit"];
+  const tsv = ["a\t10\t100.10\t300.20\t200.10", "b\t5\t50.20\t0.10\t-50.10"].join("\n");
+  const a = aggregateReport(tsv, fields, "SEARCH_QUERY_PERFORMANCE_REPORT");
+  assert.equal(a.totals.Revenue, 300.3);
+  assert.equal(a.totals.Profit, 150);
+  assert.equal(a.top[0].Revenue, 300.2);
+  assert.equal(a.top[0].Query, "a");
+});
+
 test("aggregate: filters drive the detail list; totals stay over 100%", () => {
   const a = aggregateReport(SQ_TSV, SQ_FIELDS, "SEARCH_QUERY_PERFORMANCE_REPORT", { minCost: 50 });
   assert.equal(a.totals.Cost, 277); // unchanged — totals are over all rows
