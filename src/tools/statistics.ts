@@ -96,7 +96,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
       title: "Статистика",
       annotations: READ_ONLY,
       description:
-        "Запрашивает отчёт по эффективности через сервис Reports Яндекс Директа. По умолчанию отчёт АГРЕГИРОВАН за весь период (одна строка на объект) — добавлять \"Date\" в fieldNames только для динамики по дням или вопросов о трендах. ALL_TIME без фильтра по кампаниям отклоняется для отчётов SEARCH_QUERY/CRITERIA: нужно передать campaignIds или ограниченный период. SEARCH_QUERY_PERFORMANCE_REPORT возвращает не сырые строки, а ВЫЧИСЛЕННУЮ СВОДКУ (итоги по ВСЕМ строкам + детализация top-N + свёртка хвоста + количество строк без кликов и без конверсий); её форму задают sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, а для подсчётов по конверсиям нужно добавить Conversions в fieldNames. Остальные типы отчётов возвращают строки, разделённые табуляцией (без заголовка).",
+        "Запрашивает отчёт по эффективности через сервис Reports Яндекс Директа. По умолчанию отчёт АГРЕГИРОВАН за весь период (одна строка на объект) — добавлять \"Date\" в fieldNames только для динамики по дням или вопросов о трендах. Почасовой статистики в Reports нет: минимум — сутки, внутридневную динамику дают только повторные снимки TODAY. Готового ROAS нет — считать Revenue / Cost; GoalsRoi — это ROI ((Revenue − Cost) / Cost), не ROAS. Revenue, Profit, GoalsRoi и конверсии заполняются только по целям Метрики с ценностью. ALL_TIME без фильтра по кампаниям отклоняется для отчётов SEARCH_QUERY/CRITERIA: нужно передать campaignIds или ограниченный период. SEARCH_QUERY_PERFORMANCE_REPORT возвращает не сырые строки, а ВЫЧИСЛЕННУЮ СВОДКУ (итоги по ВСЕМ строкам + детализация top-N + свёртка хвоста + количество строк без кликов и без конверсий); её форму задают sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, а для подсчётов по конверсиям нужно добавить Conversions в fieldNames. Остальные типы отчётов возвращают строки, разделённые табуляцией (без заголовка).",
       inputSchema: {
         reportType: z.enum(REPORT_TYPES).optional().describe("Тип отчёта. По умолчанию CAMPAIGN_PERFORMANCE_REPORT."),
         dateRangeType: z
@@ -105,7 +105,14 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           .describe("Предустановленный период. Если заданы dateFrom/dateTo, подставляется CUSTOM_DATE."),
         dateFrom: isoDate().optional().describe("Дата начала YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
         dateTo: isoDate().optional().describe("Дата окончания YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
-        fieldNames: z.array(z.string()).optional().describe("Колонки отчёта (должны быть допустимы для его типа)."),
+        fieldNames: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Колонки отчёта (должны быть допустимы для его типа). Сверх базовых метрик: Conversions, " +
+              "ConversionRate, CostPerConversion, Revenue, Profit, GoalsRoi. Разрезы CUSTOM_REPORT: Date, Device, " +
+              "Age, Gender, LocationOfPresenceName, Placement, AdNetworkType, Slot и др.",
+          ),
         campaignIds: z.array(z.number().int()).optional().describe("Ограничить отчёт этими id кампаний."),
         filters: z
           .array(
