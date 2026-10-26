@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, isoDate, ok, READ_ONLY } from "./util.js";
+import { fail, isoDate, ok, READ_ONLY, toMicros } from "./util.js";
 import { aggregateReport, countDataRows, MAX_TOP_N, truncateTsv } from "./statistics.aggregate.js";
 
 export const REPORT_TYPES = [
@@ -40,6 +40,13 @@ const DATE_RANGES = [
   "CUSTOM_DATE",
   "AUTO",
 ] as const;
+
+/**
+ * Money fields a Filter can compare against. Reports takes their Filter.Values in micros
+ * even with returnMoneyInMicros=false (checked live: Cost GREATER_THAN 40000 kept a 33k
+ * campaign), so the tool converts the caller's account-currency values at the boundary.
+ */
+const MONEY_FILTER_FIELDS = new Set(["Cost", "AvgCpc", "AvgCpm", "AvgEffectiveBid", "CostPerConversion", "Revenue", "Profit"]);
 
 /** Documented attribution models; LC is the API default. */
 const ATTRIBUTION_MODELS = ["FCCD", "LC", "LSCCD", "AUTO"] as const;
@@ -119,7 +126,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
             z.object({
               field: z.string().describe("Поле для фильтрации (должно быть допустимо для типа отчёта)."),
               operator: z.enum(FILTER_OPERATORS).describe("Оператор сравнения."),
-              values: z.array(z.string()).min(1).describe("Значения; числа передавать строками."),
+              values: z.array(z.string()).min(1).describe("Значения; числа передавать строками, деньги — в валюте аккаунта."),
             }),
           )
           .optional()
@@ -205,7 +212,16 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         // весь аккаунт за всё время → взрыв размера. Падаем громко, до запроса.
         const heavy =
           type === "SEARCH_QUERY_PERFORMANCE_REPORT" || type === "CRITERIA_PERFORMANCE_REPORT";
-        if (range === "ALL_TIME" && heavy && !campaignIds?.length) {
+        const badMoney = filters?.find(
+          (f) => MONEY_FILTER_FIELDS.has(f.field) && f.values.some((v) => !Number.isFinite(Number(v)) || v.trim() === ""),
+        );
+        if (badMoney) {
+          return fail(`Фильтр по ${badMoney.field} принимает только числа в валюте аккаунта, например "100" или "99.5".`);
+        }
+        const byCampaign =
+          !!campaignIds?.length ||
+          !!filters?.some((f) => f.field === "CampaignId" && (f.operator === "IN" || f.operator === "EQUALS"));
+        if (range === "ALL_TIME" && heavy && !byCampaign) {
           return fail(
             `ALL_TIME без фильтра по кампаниям недопустим для ${type} (вернётся весь аккаунт, и размер ответа взорвётся). Нужно передать campaignIds или ограниченный период — например LAST_30_DAYS или CUSTOM_DATE.`,
           );
@@ -236,7 +252,11 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           ...(campaignIds?.length
             ? [{ Field: "CampaignId", Operator: "IN", Values: campaignIds.map(String) }]
             : []),
-          ...(filters ?? []).map((f) => ({ Field: f.field, Operator: f.operator, Values: f.values })),
+          ...(filters ?? []).map((f) => ({
+            Field: f.field,
+            Operator: f.operator,
+            Values: MONEY_FILTER_FIELDS.has(f.field) ? f.values.map((v) => String(toMicros(Number(v)))) : f.values,
+          })),
         ];
         if (filter.length) selection.Filter = filter;
 

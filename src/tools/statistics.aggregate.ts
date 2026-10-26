@@ -14,7 +14,7 @@
  * tokenization breaks on Russian morphology — the model groups queries better).
  */
 
-// Revenue/Profit are money metrics the caller requests explicitly (ROAS = Revenue / Cost).
+// Revenue/Profit/GoalsRoi are metrics the caller requests explicitly (ROAS = Revenue / Cost).
 // Without them here parseRows would keep them as dimension strings.
 const METRIC_FIELDS = new Set([
   "Impressions",
@@ -29,6 +29,7 @@ const METRIC_FIELDS = new Set([
   "AvgPageviews",
   "Revenue",
   "Profit",
+  "GoalsRoi",
 ]);
 
 /** Metrics that are summable across rows (ratios like Ctr/AvgCpc are NOT summed). */
@@ -46,6 +47,7 @@ const DISPLAY_METRICS = [
   "BounceRate",
   "Revenue",
   "Profit",
+  "GoalsRoi",
 ];
 
 export const MAX_TOP_N = 100;

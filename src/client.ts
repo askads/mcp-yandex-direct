@@ -17,10 +17,9 @@ const SANDBOX_BASE = "https://api-sandbox.direct.yandex.com/json/v5/";
 // v501 is the only version that knows the Единая перформанс-кампания: v5 reports a
 // UNIFIED_CAMPAIGN as TEXT_CAMPAIGN and returns an empty list for Types=[UNIFIED_CAMPAIGN]
 // (checked live). Every other service answered v5 and v501 byte-for-byte alike on the same
-// reads, so only campaigns moves.
+// reads, so only campaigns moves. The sandbox documents only /json/v5/, so it stays there.
 const V501_SERVICES = new Set(["campaigns"]);
 const PROD_V501_BASE = "https://api.direct.yandex.com/json/v501/";
-const SANDBOX_V501_BASE = "https://api-sandbox.direct.yandex.com/json/v501/";
 
 // Legacy Live v4 API — a DIFFERENT host/path and request shape than v5. Kept only for
 // finance data: AccountManagement (the sole method exposing the shared-account balance)
@@ -105,7 +104,7 @@ export class YandexDirectClient {
     tokens?: TokenStore,
   ) {
     this.base = config.sandbox ? SANDBOX_BASE : PROD_BASE;
-    this.v501Base = config.sandbox ? SANDBOX_V501_BASE : PROD_V501_BASE;
+    this.v501Base = config.sandbox ? SANDBOX_BASE : PROD_V501_BASE;
     this.v4Base = config.sandbox ? SANDBOX_V4_BASE : PROD_V4_BASE;
     this.timeoutMs = config.timeoutMs ?? 60_000;
     this.maxRetries = config.maxRetries ?? 3;

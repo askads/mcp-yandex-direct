@@ -372,3 +372,44 @@ test("raw report with goals keeps the widened header out of the row count", () =
   const cut = truncateTsv(tsv, fields, 10);
   assert.equal(cut.totalRows, 1);
 });
+
+test("money filters take account currency and reach Reports in micros", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n`);
+  await tools.get_statistics({
+    filters: [
+      { field: "Cost", operator: "GREATER_THAN", values: ["100.5"] },
+      { field: "Clicks", operator: "GREATER_THAN", values: ["3"] },
+    ],
+  });
+  assert.deepEqual(calls[0].SelectionCriteria.Filter, [
+    { Field: "Cost", Operator: "GREATER_THAN", Values: ["100500000"] },
+    { Field: "Clicks", Operator: "GREATER_THAN", Values: ["3"] },
+  ]);
+});
+
+test("a non-numeric money filter is refused before the request", async () => {
+  const { calls, tools } = harness();
+  const res = await tools.get_statistics({
+    filters: [{ field: "Cost", operator: "GREATER_THAN", values: ["много"] }],
+  });
+  assert.equal(res.isError, true);
+  assert.equal(calls.length, 0);
+});
+
+test("ALL_TIME search-query report is allowed when filters bound it to campaigns", async () => {
+  const { calls, tools } = harness(() => "");
+  const res = await tools.get_statistics({
+    reportType: "SEARCH_QUERY_PERFORMANCE_REPORT",
+    dateRangeType: "ALL_TIME",
+    filters: [{ field: "CampaignId", operator: "IN", values: ["123"] }],
+  });
+  assert.notEqual(res.isError, true);
+  assert.equal(calls.length, 1);
+});
+
+test("aggregate: GoalsRoi is a numeric metric, not summed", () => {
+  const fields = ["Query", "Cost", "GoalsRoi"];
+  const a = aggregateReport("a\t100\t2.5\nb\t50\t-0.5", fields, "SEARCH_QUERY_PERFORMANCE_REPORT");
+  assert.equal(a.top[0].GoalsRoi, 2.5);
+  assert.equal("GoalsRoi" in a.totals, false);
+});
