@@ -14,6 +14,13 @@ import { OperationCancelledError, currentOperation, throwIfCancelled, wait } fro
 const PROD_BASE = "https://api.direct.yandex.com/json/v5/";
 const SANDBOX_BASE = "https://api-sandbox.direct.yandex.com/json/v5/";
 
+// v501 is the only version that knows the Единая перформанс-кампания: v5 reports a
+// UNIFIED_CAMPAIGN as TEXT_CAMPAIGN and returns an empty list for Types=[UNIFIED_CAMPAIGN]
+// (checked live). Every other service answered v5 and v501 byte-for-byte alike on the same
+// reads, so only campaigns moves. The sandbox documents only /json/v5/, so it stays there.
+const V501_SERVICES = new Set(["campaigns"]);
+const PROD_V501_BASE = "https://api.direct.yandex.com/json/v501/";
+
 // Legacy Live v4 API — a DIFFERENT host/path and request shape than v5. Kept only for
 // finance data: AccountManagement (the sole method exposing the shared-account balance)
 // lives only here; v5 has no finance service.
@@ -75,6 +82,7 @@ export interface Units {
 
 export class YandexDirectClient {
   private readonly base: string;
+  private readonly v501Base: string;
   private readonly v4Base: string;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
@@ -96,6 +104,7 @@ export class YandexDirectClient {
     tokens?: TokenStore,
   ) {
     this.base = config.sandbox ? SANDBOX_BASE : PROD_BASE;
+    this.v501Base = config.sandbox ? SANDBOX_BASE : PROD_V501_BASE;
     this.v4Base = config.sandbox ? SANDBOX_V4_BASE : PROD_V4_BASE;
     this.timeoutMs = config.timeoutMs ?? 60_000;
     this.maxRetries = config.maxRetries ?? 3;
@@ -247,8 +256,10 @@ export class YandexDirectClient {
     // ("\\evil/x") would otherwise rebase the token-bearing request onto another host.
     // Comparing the resolved origin (not a brittle string test) stays correct regardless
     // of how the URL is built below.
-    const target = new URL(service.replace(/^\//, ""), this.base);
-    if (target.origin !== new URL(this.base).origin) {
+    const path = service.replace(/^\//, "");
+    const base = V501_SERVICES.has(path.split(/[/?#]/)[0].toLowerCase()) ? this.v501Base : this.base;
+    const target = new URL(path, base);
+    if (target.origin !== new URL(base).origin) {
       throw new Error(
         `service должен быть относительным путём API (получился чужой origin ${target.origin})`,
       );

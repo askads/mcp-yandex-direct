@@ -14,6 +14,8 @@
  * tokenization breaks on Russian morphology — the model groups queries better).
  */
 
+// Revenue/Profit/GoalsRoi are metrics the caller requests explicitly (ROAS = Revenue / Cost).
+// Without them here parseRows would keep them as dimension strings.
 const METRIC_FIELDS = new Set([
   "Impressions",
   "Clicks",
@@ -25,10 +27,13 @@ const METRIC_FIELDS = new Set([
   "CostPerConversion",
   "BounceRate",
   "AvgPageviews",
+  "Revenue",
+  "Profit",
+  "GoalsRoi",
 ]);
 
 /** Metrics that are summable across rows (ratios like Ctr/AvgCpc are NOT summed). */
-const SUMMABLE = ["Impressions", "Clicks", "Cost", "Conversions"];
+const SUMMABLE = ["Impressions", "Clicks", "Cost", "Conversions", "Revenue", "Profit"];
 /** Metrics shown in each detail row when present in the report. */
 const DISPLAY_METRICS = [
   "Impressions",
@@ -40,6 +45,9 @@ const DISPLAY_METRICS = [
   "ConversionRate",
   "CostPerConversion",
   "BounceRate",
+  "Revenue",
+  "Profit",
+  "GoalsRoi",
 ];
 
 export const MAX_TOP_N = 100;
@@ -64,6 +72,16 @@ export interface TruncatedTsv {
 }
 
 /**
+ * Is this TSV line the column-header row? With Goals the Reports service expands each
+ * conversion/revenue field into one column per goal × attribution model, named
+ * `<field>_<goalId>_<model>`, so the header can be wider than fieldNames.
+ */
+export function isColumnHeader(cells: string[], fieldNames: string[]): boolean {
+  if (cells.length < fieldNames.length || cells[0] !== fieldNames[0]) return false;
+  return cells.every((c) => fieldNames.some((f) => c === f || c.startsWith(`${f}_`)));
+}
+
+/**
  * Cuts a raw report TSV to the row/byte caps, keeping the column-header line
  * (detected the same way as parseRows) outside the row count. Returns the
  * original text untouched when everything fits.
@@ -84,8 +102,7 @@ export function truncateTsv(
     if (!line.trim()) continue;
     if (!sawHeader) {
       sawHeader = true;
-      const cells = line.split("\t");
-      if (cells.length === fieldNames.length && fieldNames.every((f, i) => cells[i] === f)) {
+      if (isColumnHeader(line.split("\t"), fieldNames)) {
         kept.push(line);
         bytes += line.length + 1;
         continue;
@@ -165,9 +182,7 @@ export function parseRows(tsv: string, fieldNames: string[]): ParsedRow[] {
     // "1 row, all zeros" and invents reasons instead of reporting an empty slice.
     if (!sawHeader) {
       sawHeader = true;
-      if (cells.length === fieldNames.length && fieldNames.every((f, i) => cells[i] === f)) {
-        continue;
-      }
+      if (isColumnHeader(cells, fieldNames)) continue;
     }
     const dims: Record<string, string> = {};
     const m: Record<string, number> = {};
@@ -202,8 +217,8 @@ function sumMetrics(rows: ParsedRow[], keys: string[]): Record<string, number> {
   const t: Record<string, number> = {};
   for (const k of keys) t[k] = 0;
   for (const r of rows) for (const k of keys) t[k] += r.m[k] ?? 0;
-  // Round Cost to 2 decimals to avoid float dust.
-  if ("Cost" in t) t.Cost = Math.round(t.Cost * 100) / 100;
+  // Round money to 2 decimals to avoid float dust.
+  for (const k of ["Cost", "Revenue", "Profit"]) if (k in t) t[k] = Math.round(t[k] * 100) / 100;
   return t;
 }
 

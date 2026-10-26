@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, isoDate, ok, READ_ONLY } from "./util.js";
+import { fail, isoDate, ok, READ_ONLY, toMicros } from "./util.js";
 import { aggregateReport, countDataRows, MAX_TOP_N, truncateTsv } from "./statistics.aggregate.js";
 
 export const REPORT_TYPES = [
@@ -11,19 +11,58 @@ export const REPORT_TYPES = [
   "AD_PERFORMANCE_REPORT",
   "CRITERIA_PERFORMANCE_REPORT",
   "SEARCH_QUERY_PERFORMANCE_REPORT",
+  // Arbitrary groupings (Device, Age, Gender, region, placement, …): the caller
+  // composes fieldNames from dimensions + metrics.
+  "CUSTOM_REPORT",
 ] as const;
 
 type ReportType = (typeof REPORT_TYPES)[number];
 
+/** Full documented DateRangeType list (AUTO = the period Yandex may still restate). */
 const DATE_RANGES = [
   "TODAY",
   "YESTERDAY",
+  "LAST_3_DAYS",
+  "LAST_5_DAYS",
   "LAST_7_DAYS",
+  "LAST_14_DAYS",
   "LAST_30_DAYS",
+  "LAST_90_DAYS",
+  "LAST_365_DAYS",
+  "THIS_WEEK_MON_TODAY",
+  "THIS_WEEK_SUN_TODAY",
+  "LAST_WEEK",
+  "LAST_BUSINESS_WEEK",
+  "LAST_WEEK_SUN_SAT",
   "THIS_MONTH",
   "LAST_MONTH",
   "ALL_TIME",
   "CUSTOM_DATE",
+  "AUTO",
+] as const;
+
+/**
+ * Money fields a Filter can compare against. Reports takes their Filter.Values in micros
+ * even with returnMoneyInMicros=false (checked live: Cost GREATER_THAN 40000 kept a 33k
+ * campaign), so the tool converts the caller's account-currency values at the boundary.
+ */
+const MONEY_FILTER_FIELDS = new Set(["Cost", "AvgCpc", "AvgCpm", "AvgEffectiveBid", "CostPerConversion", "Revenue", "Profit"]);
+
+/** Documented attribution models; LC is the API default. */
+const ATTRIBUTION_MODELS = ["FCCD", "LC", "LSCCD", "AUTO"] as const;
+
+/** Documented SelectionCriteria.Filter operators. */
+const FILTER_OPERATORS = [
+  "EQUALS",
+  "NOT_EQUALS",
+  "IN",
+  "NOT_IN",
+  "LESS_THAN",
+  "GREATER_THAN",
+  "STARTS_WITH_IGNORE_CASE",
+  "DOES_NOT_START_WITH_IGNORE_CASE",
+  "STARTS_WITH_ANY_IGNORE_CASE",
+  "DOES_NOT_START_WITH_ALL_IGNORE_CASE",
 ] as const;
 
 const METRICS = ["Impressions", "Clicks", "Cost", "Ctr", "AvgCpc"];
@@ -53,6 +92,8 @@ export const DEFAULT_FIELDS_BY_TYPE: Record<ReportType, string[]> = {
     ...METRICS,
   ],
   SEARCH_QUERY_PERFORMANCE_REPORT: ["CampaignName", "Query", ...METRICS],
+  // No natural default — CUSTOM_REPORT exists for caller-chosen dimensions.
+  CUSTOM_REPORT: ["CampaignId", "CampaignName", ...METRICS],
 };
 
 export function registerStatisticsTools(server: McpServer, client: YandexDirectClient): void {
@@ -62,7 +103,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
       title: "Статистика",
       annotations: READ_ONLY,
       description:
-        "Запрашивает отчёт по эффективности через сервис Reports Яндекс Директа. По умолчанию отчёт АГРЕГИРОВАН за весь период (одна строка на объект) — добавлять \"Date\" в fieldNames только для динамики по дням или вопросов о трендах. ALL_TIME без фильтра по кампаниям отклоняется для отчётов SEARCH_QUERY/CRITERIA: нужно передать campaignIds или ограниченный период. SEARCH_QUERY_PERFORMANCE_REPORT возвращает не сырые строки, а ВЫЧИСЛЕННУЮ СВОДКУ (итоги по ВСЕМ строкам + детализация top-N + свёртка хвоста + количество строк без кликов и без конверсий); её форму задают sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, а для подсчётов по конверсиям нужно добавить Conversions в fieldNames. Остальные типы отчётов возвращают строки, разделённые табуляцией (без заголовка).",
+        "Запрашивает отчёт по эффективности через сервис Reports Яндекс Директа. По умолчанию отчёт АГРЕГИРОВАН за весь период (одна строка на объект) — добавлять \"Date\" в fieldNames только для динамики по дням или вопросов о трендах. Почасовой статистики в Reports нет: минимум — сутки, внутридневную динамику дают только повторные снимки TODAY. Готового ROAS нет — считать Revenue / Cost; GoalsRoi — это ROI ((Revenue − Cost) / Cost), не ROAS. Revenue, Profit, GoalsRoi и конверсии заполняются только по целям Метрики с ценностью. ALL_TIME без фильтра по кампаниям отклоняется для отчётов SEARCH_QUERY/CRITERIA: нужно передать campaignIds или ограниченный период. SEARCH_QUERY_PERFORMANCE_REPORT возвращает не сырые строки, а ВЫЧИСЛЕННУЮ СВОДКУ (итоги по ВСЕМ строкам + детализация top-N + свёртка хвоста + количество строк без кликов и без конверсий); её форму задают sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, а для подсчётов по конверсиям нужно добавить Conversions в fieldNames. Остальные типы отчётов возвращают строки, разделённые табуляцией (без заголовка).",
       inputSchema: {
         reportType: z.enum(REPORT_TYPES).optional().describe("Тип отчёта. По умолчанию CAMPAIGN_PERFORMANCE_REPORT."),
         dateRangeType: z
@@ -71,8 +112,43 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           .describe("Предустановленный период. Если заданы dateFrom/dateTo, подставляется CUSTOM_DATE."),
         dateFrom: isoDate().optional().describe("Дата начала YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
         dateTo: isoDate().optional().describe("Дата окончания YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
-        fieldNames: z.array(z.string()).optional().describe("Колонки отчёта (должны быть допустимы для его типа)."),
+        fieldNames: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Колонки отчёта (должны быть допустимы для его типа). Сверх базовых метрик: Conversions, " +
+              "ConversionRate, CostPerConversion, Revenue, Profit, GoalsRoi. Разрезы CUSTOM_REPORT: Date, Device, " +
+              "Age, Gender, LocationOfPresenceName, Placement, AdNetworkType, Slot и др.",
+          ),
         campaignIds: z.array(z.number().int()).optional().describe("Ограничить отчёт этими id кампаний."),
+        filters: z
+          .array(
+            z.object({
+              field: z.string().describe("Поле для фильтрации (должно быть допустимо для типа отчёта)."),
+              operator: z.enum(FILTER_OPERATORS).describe("Оператор сравнения."),
+              values: z.array(z.string()).min(1).describe("Значения; числа передавать строками, деньги — в валюте аккаунта."),
+            }),
+          )
+          .optional()
+          .describe(
+            "Произвольные условия SelectionCriteria.Filter, складываются с campaignIds по И. " +
+              "Например Clicks GREATER_THAN 0 или Device EQUALS MOBILE.",
+          ),
+        goals: z
+          .array(z.string())
+          .min(1)
+          .max(10)
+          .optional()
+          .describe(
+            "Id целей Яндекс Метрики (не более 10). Без них Conversions и Revenue считаются по всем целям " +
+              "кампании; с ними колонки приходят как <поле>_<idЦели>_<модель> (по одной на цель × модель). " +
+              "Для SEARCH_QUERY_PERFORMANCE_REPORT — только одна цель и одна модель.",
+          ),
+        attributionModels: z
+          .array(z.enum(ATTRIBUTION_MODELS))
+          .min(1)
+          .optional()
+          .describe("Модели атрибуции для конверсий. По умолчанию LC (последний переход)."),
         includeVat: z.boolean().optional().describe("Включать ли НДС в расход. По умолчанию true."),
         // Aggregation controls — apply to SEARCH_QUERY_PERFORMANCE_REPORT (computed summary).
         sortBy: z
@@ -106,6 +182,9 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
       dateTo,
       fieldNames,
       campaignIds,
+      filters,
+      goals,
+      attributionModels,
       includeVat,
       sortBy,
       order,
@@ -133,9 +212,29 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         // весь аккаунт за всё время → взрыв размера. Падаем громко, до запроса.
         const heavy =
           type === "SEARCH_QUERY_PERFORMANCE_REPORT" || type === "CRITERIA_PERFORMANCE_REPORT";
-        if (range === "ALL_TIME" && heavy && !campaignIds?.length) {
+        const badMoney = filters?.find(
+          (f) => MONEY_FILTER_FIELDS.has(f.field) && f.values.some((v) => !Number.isFinite(Number(v)) || v.trim() === ""),
+        );
+        if (badMoney) {
+          return fail(`Фильтр по ${badMoney.field} принимает только числа в валюте аккаунта, например "100" или "99.5".`);
+        }
+        const byCampaign =
+          !!campaignIds?.length ||
+          !!filters?.some((f) => f.field === "CampaignId" && (f.operator === "IN" || f.operator === "EQUALS"));
+        if (range === "ALL_TIME" && heavy && !byCampaign) {
           return fail(
             `ALL_TIME без фильтра по кампаниям недопустим для ${type} (вернётся весь аккаунт, и размер ответа взорвётся). Нужно передать campaignIds или ограниченный период — например LAST_30_DAYS или CUSTOM_DATE.`,
+          );
+        }
+
+        // The search-query summary reads columns by fieldNames position; with Goals every
+        // conversion/revenue field becomes one column per goal × model, which only lines
+        // up when there is exactly one pair. Refuse before the request burns a Reports task.
+        const goalColumns = (goals?.length ?? 0) * (attributionModels?.length || 1);
+        if (type === "SEARCH_QUERY_PERFORMANCE_REPORT" && goalColumns > 1) {
+          return fail(
+            "Для SEARCH_QUERY_PERFORMANCE_REPORT сводка поддерживает одну цель и одну модель атрибуции. " +
+              "Передать одну цель в goals (и не больше одной модели) или вызвать отчёт отдельно для каждой цели.",
           );
         }
 
@@ -147,11 +246,19 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           selection.DateFrom = dateFrom;
           selection.DateTo = dateTo;
         }
-        if (campaignIds?.length) {
-          selection.Filter = [
-            { Field: "CampaignId", Operator: "IN", Values: campaignIds.map(String) },
-          ];
-        }
+        // campaignIds is the shorthand; `filters` carries anything else. Both land in one
+        // Filter array, which the API ANDs together.
+        const filter = [
+          ...(campaignIds?.length
+            ? [{ Field: "CampaignId", Operator: "IN", Values: campaignIds.map(String) }]
+            : []),
+          ...(filters ?? []).map((f) => ({
+            Field: f.field,
+            Operator: f.operator,
+            Values: MONEY_FILTER_FIELDS.has(f.field) ? f.values.map((v) => String(toMicros(Number(v)))) : f.values,
+          })),
+        ];
+        if (filter.length) selection.Filter = filter;
 
         const params = {
           SelectionCriteria: selection,
@@ -162,6 +269,9 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           Format: "TSV",
           IncludeVAT: includeVat === false ? "NO" : "YES",
           IncludeDiscount: "NO",
+          // Goals/AttributionModels sit NEXT TO SelectionCriteria, not inside it.
+          ...(goals?.length ? { Goals: goals } : {}),
+          ...(attributionModels?.length ? { AttributionModels: attributionModels } : {}),
         };
 
         const tsv = await client.report(params);

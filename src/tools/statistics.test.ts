@@ -112,6 +112,16 @@ test("aggregate: field-aware — no Conversions in fieldNames omits conversion d
   assert.equal("Conversions" in a.top[0], false);
 });
 
+test("aggregate: Revenue/Profit are summed money metrics, not dimension strings", () => {
+  const fields = ["Query", "Clicks", "Cost", "Revenue", "Profit"];
+  const tsv = ["a\t10\t100.10\t300.20\t200.10", "b\t5\t50.20\t0.10\t-50.10"].join("\n");
+  const a = aggregateReport(tsv, fields, "SEARCH_QUERY_PERFORMANCE_REPORT");
+  assert.equal(a.totals.Revenue, 300.3);
+  assert.equal(a.totals.Profit, 150);
+  assert.equal(a.top[0].Revenue, 300.2);
+  assert.equal(a.top[0].Query, "a");
+});
+
 test("aggregate: filters drive the detail list; totals stay over 100%", () => {
   const a = aggregateReport(SQ_TSV, SQ_FIELDS, "SEARCH_QUERY_PERFORMANCE_REPORT", { minCost: 50 });
   assert.equal(a.totals.Cost, 277); // unchanged — totals are over all rows
@@ -257,4 +267,149 @@ test("get_statistics returns the raw TSV when a campaign filter has data rows", 
   const res = await tools.get_statistics({ campaignIds: [123] });
   assert.equal(res.isError, undefined);
   assert.match(res.content[0].text, /My campaign/);
+});
+
+// --- goals / attribution / arbitrary filters / CUSTOM_REPORT ----------------
+
+test("goals and attributionModels ride NEXT TO SelectionCriteria, not inside it", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
+  await tools.get_statistics({
+    fieldNames: ["CampaignName", "Cost", "Revenue", "Conversions"],
+    goals: ["20002", "20003"],
+    attributionModels: ["LSCCD"],
+  });
+  assert.deepEqual(calls[0].Goals, ["20002", "20003"]);
+  assert.deepEqual(calls[0].AttributionModels, ["LSCCD"]);
+  assert.equal(calls[0].SelectionCriteria.Goals, undefined, "Goals must not be nested in SelectionCriteria");
+  assert.ok(calls[0].FieldNames.includes("Revenue"));
+});
+
+test("omitting goals sends neither Goals nor AttributionModels", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
+  await tools.get_statistics({});
+  assert.equal("Goals" in calls[0], false);
+  assert.equal("AttributionModels" in calls[0], false);
+});
+
+test("arbitrary filters are ANDed with the campaignIds shorthand", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
+  await tools.get_statistics({
+    campaignIds: [123],
+    filters: [{ field: "Clicks", operator: "GREATER_THAN", values: ["0"] }],
+  });
+  assert.deepEqual(calls[0].SelectionCriteria.Filter, [
+    { Field: "CampaignId", Operator: "IN", Values: ["123"] },
+    { Field: "Clicks", Operator: "GREATER_THAN", Values: ["0"] },
+  ]);
+});
+
+test("filters alone (no campaignIds) still build a Filter array", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
+  await tools.get_statistics({
+    filters: [{ field: "Device", operator: "EQUALS", values: ["MOBILE"] }],
+  });
+  assert.deepEqual(calls[0].SelectionCriteria.Filter, [
+    { Field: "Device", Operator: "EQUALS", Values: ["MOBILE"] },
+  ]);
+});
+
+test("no filters at all leaves SelectionCriteria without a Filter key", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
+  await tools.get_statistics({});
+  assert.equal("Filter" in calls[0].SelectionCriteria, false);
+});
+
+test("CUSTOM_REPORT passes caller-chosen dimensions straight through", async () => {
+  const header = "Device\tCost\tClicks";
+  const { calls, tools } = harness(() => `${header}\nMOBILE\t100.00\t20\n`);
+  const res = await tools.get_statistics({
+    reportType: "CUSTOM_REPORT",
+    fieldNames: ["Device", "Cost", "Clicks"],
+  });
+  assert.equal(calls[0].ReportType, "CUSTOM_REPORT");
+  assert.deepEqual(calls[0].FieldNames, ["Device", "Cost", "Clicks"]);
+  assert.match(res.content[0].text, /MOBILE/);
+});
+
+test("the extended DateRangeType list reaches the API unchanged", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
+  await tools.get_statistics({ dateRangeType: "LAST_3_DAYS" });
+  assert.equal(calls[0].DateRangeType, "LAST_3_DAYS");
+});
+
+test("search-query summary refuses several goal × model columns before the request", async () => {
+  const { calls, tools } = harness();
+  const res = await tools.get_statistics({
+    reportType: "SEARCH_QUERY_PERFORMANCE_REPORT",
+    fieldNames: ["Query", "Clicks", "Cost", "Conversions"],
+    goals: ["1", "2"],
+  });
+  assert.equal(res.isError, true);
+  assert.equal(calls.length, 0);
+});
+
+test("search-query summary with one goal maps suffixed columns and drops their header", async () => {
+  const fields = ["Query", "Clicks", "Cost", "Conversions", "Revenue"];
+  const tsv = [
+    "Query\tClicks\tCost\tConversions_42_LC\tRevenue_42_LC",
+    "a\t10\t100.00\t2\t300.00",
+  ].join("\n");
+  const { tools } = harness(() => tsv);
+  const res = await tools.get_statistics({
+    reportType: "SEARCH_QUERY_PERFORMANCE_REPORT",
+    fieldNames: fields,
+    goals: ["42"],
+  });
+  const a = JSON.parse(res.content[0].text);
+  assert.equal(a.rowsTotal, 1);
+  assert.equal(a.totals.Conversions, 2);
+  assert.equal(a.totals.Revenue, 300);
+});
+
+test("raw report with goals keeps the widened header out of the row count", () => {
+  const fields = ["CampaignId", "Conversions"];
+  const tsv = "CampaignId\tConversions_1_LC\tConversions_2_LC\n7\t1\t2\n";
+  const cut = truncateTsv(tsv, fields, 10);
+  assert.equal(cut.totalRows, 1);
+});
+
+test("money filters take account currency and reach Reports in micros", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n`);
+  await tools.get_statistics({
+    filters: [
+      { field: "Cost", operator: "GREATER_THAN", values: ["100.5"] },
+      { field: "Clicks", operator: "GREATER_THAN", values: ["3"] },
+    ],
+  });
+  assert.deepEqual(calls[0].SelectionCriteria.Filter, [
+    { Field: "Cost", Operator: "GREATER_THAN", Values: ["100500000"] },
+    { Field: "Clicks", Operator: "GREATER_THAN", Values: ["3"] },
+  ]);
+});
+
+test("a non-numeric money filter is refused before the request", async () => {
+  const { calls, tools } = harness();
+  const res = await tools.get_statistics({
+    filters: [{ field: "Cost", operator: "GREATER_THAN", values: ["много"] }],
+  });
+  assert.equal(res.isError, true);
+  assert.equal(calls.length, 0);
+});
+
+test("ALL_TIME search-query report is allowed when filters bound it to campaigns", async () => {
+  const { calls, tools } = harness(() => "");
+  const res = await tools.get_statistics({
+    reportType: "SEARCH_QUERY_PERFORMANCE_REPORT",
+    dateRangeType: "ALL_TIME",
+    filters: [{ field: "CampaignId", operator: "IN", values: ["123"] }],
+  });
+  assert.notEqual(res.isError, true);
+  assert.equal(calls.length, 1);
+});
+
+test("aggregate: GoalsRoi is a numeric metric, not summed", () => {
+  const fields = ["Query", "Cost", "GoalsRoi"];
+  const a = aggregateReport("a\t100\t2.5\nb\t50\t-0.5", fields, "SEARCH_QUERY_PERFORMANCE_REPORT");
+  assert.equal(a.top[0].GoalsRoi, 2.5);
+  assert.equal("GoalsRoi" in a.totals, false);
 });

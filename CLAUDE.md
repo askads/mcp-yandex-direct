@@ -23,7 +23,9 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
   request, the retries and fetch. An authorization error (code 53) on a stored token triggers
   one silent refresh + replay per request — only when a refresh can succeed (see oauth.ts);
   otherwise it raises `AuthRequiredError` (log in again). A 53 under a `Client-Login` is
-  `ClientAccessError`: Direct answers "no access to that client" with the same code.
+  `ClientAccessError`: Direct answers "no access to that client" with the same code. The
+  `campaigns` service goes to `json/v501/` (`V501_SERVICES`): v5 reports a ЕПК as TEXT_CAMPAIGN
+  and returns nothing for `Types=[UNIFIED_CAMPAIGN]`; every other service still uses v5.
 - `src/oauth.ts` — the OAuth flow: PKCE pair (S256), authorize URL against
   `https://oauth.yandex.ru/verification_code`, code exchange and refresh. **No `client_secret`** —
   this is a public client, and a secret inside an npm package would protect nothing. Yandex
