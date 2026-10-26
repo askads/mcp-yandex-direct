@@ -6,7 +6,8 @@ import { buildPage, compact, fail, isoDate, MAX_TOOL_LIMIT, normalizeMoney, ok, 
 // Types accepted by campaigns.get SelectionCriteria.Types. UNIFIED_CAMPAIGN is the
 // "Единая перформанс-кампания" (ЕПК) — the type new performance campaigns are created as.
 // Yandex is consolidating the legacy types into it, so without UNIFIED_CAMPAIGN a
-// type-filtered query silently omits every performance campaign. Legacy types are kept:
+// type-filtered query silently omits every performance campaign. Only v501 reports the type
+// (client.ts routes campaigns there; v5 calls an ЕПК TEXT_CAMPAIGN). Legacy types are kept:
 // existing (not-yet-migrated) campaigns still report them and remain filterable.
 const CAMPAIGN_TYPES = [
   "TEXT_CAMPAIGN",

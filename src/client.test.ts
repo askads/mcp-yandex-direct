@@ -152,6 +152,25 @@ test("call() sends Client-Login only when login is configured", async () => {
   }
 });
 
+test("call() sends campaigns to v501 and every other service to v5", async () => {
+  const mock = mockFetch(() => new Response(JSON.stringify({ result: {} }), { status: 200 }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false });
+    await client.call("campaigns", "get", {});
+    await client.call("/Campaigns", "get", {});
+    await client.call("adgroups", "get", {});
+    const sandbox = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await sandbox.call("campaigns", "get", {});
+
+    assert.equal(mock.calls[0].url, "https://api.direct.yandex.com/json/v501/campaigns");
+    assert.equal(mock.calls[1].url, "https://api.direct.yandex.com/json/v501/Campaigns");
+    assert.equal(mock.calls[2].url, "https://api.direct.yandex.com/json/v5/adgroups");
+    assert.equal(mock.calls[3].url, "https://api-sandbox.direct.yandex.com/json/v501/campaigns");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("call() throws YandexDirectError on API error payload", async () => {
   const mock = mockFetch(
     () =>
