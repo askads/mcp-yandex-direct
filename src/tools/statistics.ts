@@ -11,19 +11,51 @@ export const REPORT_TYPES = [
   "AD_PERFORMANCE_REPORT",
   "CRITERIA_PERFORMANCE_REPORT",
   "SEARCH_QUERY_PERFORMANCE_REPORT",
+  // Arbitrary groupings (Device, Age, Gender, region, placement, …): the caller
+  // composes fieldNames from dimensions + metrics.
+  "CUSTOM_REPORT",
 ] as const;
 
 type ReportType = (typeof REPORT_TYPES)[number];
 
+/** Full documented DateRangeType list (AUTO = the period Yandex may still restate). */
 const DATE_RANGES = [
   "TODAY",
   "YESTERDAY",
+  "LAST_3_DAYS",
+  "LAST_5_DAYS",
   "LAST_7_DAYS",
+  "LAST_14_DAYS",
   "LAST_30_DAYS",
+  "LAST_90_DAYS",
+  "LAST_365_DAYS",
+  "THIS_WEEK_MON_TODAY",
+  "THIS_WEEK_SUN_TODAY",
+  "LAST_WEEK",
+  "LAST_BUSINESS_WEEK",
+  "LAST_WEEK_SUN_SAT",
   "THIS_MONTH",
   "LAST_MONTH",
   "ALL_TIME",
   "CUSTOM_DATE",
+  "AUTO",
+] as const;
+
+/** Documented attribution models; LC is the API default. */
+const ATTRIBUTION_MODELS = ["FCCD", "LC", "LSCCD", "AUTO"] as const;
+
+/** Documented SelectionCriteria.Filter operators. */
+const FILTER_OPERATORS = [
+  "EQUALS",
+  "NOT_EQUALS",
+  "IN",
+  "NOT_IN",
+  "LESS_THAN",
+  "GREATER_THAN",
+  "STARTS_WITH_IGNORE_CASE",
+  "DOES_NOT_START_WITH_IGNORE_CASE",
+  "STARTS_WITH_ANY_IGNORE_CASE",
+  "DOES_NOT_START_WITH_ALL_IGNORE_CASE",
 ] as const;
 
 const METRICS = ["Impressions", "Clicks", "Cost", "Ctr", "AvgCpc"];
@@ -53,6 +85,8 @@ export const DEFAULT_FIELDS_BY_TYPE: Record<ReportType, string[]> = {
     ...METRICS,
   ],
   SEARCH_QUERY_PERFORMANCE_REPORT: ["CampaignName", "Query", ...METRICS],
+  // No natural default — CUSTOM_REPORT exists for caller-chosen dimensions.
+  CUSTOM_REPORT: ["CampaignId", "CampaignName", ...METRICS],
 };
 
 export function registerStatisticsTools(server: McpServer, client: YandexDirectClient): void {
@@ -73,6 +107,34 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         dateTo: isoDate().optional().describe("Дата окончания YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
         fieldNames: z.array(z.string()).optional().describe("Колонки отчёта (должны быть допустимы для его типа)."),
         campaignIds: z.array(z.number().int()).optional().describe("Ограничить отчёт этими id кампаний."),
+        filters: z
+          .array(
+            z.object({
+              field: z.string().describe("Поле для фильтрации (должно быть допустимо для типа отчёта)."),
+              operator: z.enum(FILTER_OPERATORS).describe("Оператор сравнения."),
+              values: z.array(z.string()).min(1).describe("Значения; числа передавать строками."),
+            }),
+          )
+          .optional()
+          .describe(
+            "Произвольные условия SelectionCriteria.Filter, складываются с campaignIds по И. " +
+              "Например Clicks GREATER_THAN 0 или Device EQUALS MOBILE.",
+          ),
+        goals: z
+          .array(z.string())
+          .min(1)
+          .max(10)
+          .optional()
+          .describe(
+            "Id целей Яндекс Метрики (не более 10). Без них Conversions и Revenue считаются по всем целям " +
+              "кампании; с ними колонки приходят как <поле>_<idЦели>_<модель> (по одной на цель × модель). " +
+              "Для SEARCH_QUERY_PERFORMANCE_REPORT — только одна цель и одна модель.",
+          ),
+        attributionModels: z
+          .array(z.enum(ATTRIBUTION_MODELS))
+          .min(1)
+          .optional()
+          .describe("Модели атрибуции для конверсий. По умолчанию LC (последний переход)."),
         includeVat: z.boolean().optional().describe("Включать ли НДС в расход. По умолчанию true."),
         // Aggregation controls — apply to SEARCH_QUERY_PERFORMANCE_REPORT (computed summary).
         sortBy: z
@@ -106,6 +168,9 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
       dateTo,
       fieldNames,
       campaignIds,
+      filters,
+      goals,
+      attributionModels,
       includeVat,
       sortBy,
       order,
@@ -139,6 +204,17 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           );
         }
 
+        // The search-query summary reads columns by fieldNames position; with Goals every
+        // conversion/revenue field becomes one column per goal × model, which only lines
+        // up when there is exactly one pair. Refuse before the request burns a Reports task.
+        const goalColumns = (goals?.length ?? 0) * (attributionModels?.length || 1);
+        if (type === "SEARCH_QUERY_PERFORMANCE_REPORT" && goalColumns > 1) {
+          return fail(
+            "Для SEARCH_QUERY_PERFORMANCE_REPORT сводка поддерживает одну цель и одну модель атрибуции. " +
+              "Передать одну цель в goals (и не больше одной модели) или вызвать отчёт отдельно для каждой цели.",
+          );
+        }
+
         const selection: Record<string, unknown> = {};
         if (range === "CUSTOM_DATE") {
           if (!dateFrom || !dateTo) {
@@ -147,11 +223,15 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           selection.DateFrom = dateFrom;
           selection.DateTo = dateTo;
         }
-        if (campaignIds?.length) {
-          selection.Filter = [
-            { Field: "CampaignId", Operator: "IN", Values: campaignIds.map(String) },
-          ];
-        }
+        // campaignIds is the shorthand; `filters` carries anything else. Both land in one
+        // Filter array, which the API ANDs together.
+        const filter = [
+          ...(campaignIds?.length
+            ? [{ Field: "CampaignId", Operator: "IN", Values: campaignIds.map(String) }]
+            : []),
+          ...(filters ?? []).map((f) => ({ Field: f.field, Operator: f.operator, Values: f.values })),
+        ];
+        if (filter.length) selection.Filter = filter;
 
         const params = {
           SelectionCriteria: selection,
@@ -162,6 +242,9 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           Format: "TSV",
           IncludeVAT: includeVat === false ? "NO" : "YES",
           IncludeDiscount: "NO",
+          // Goals/AttributionModels sit NEXT TO SelectionCriteria, not inside it.
+          ...(goals?.length ? { Goals: goals } : {}),
+          ...(attributionModels?.length ? { AttributionModels: attributionModels } : {}),
         };
 
         const tsv = await client.report(params);

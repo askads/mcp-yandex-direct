@@ -70,6 +70,16 @@ export interface TruncatedTsv {
 }
 
 /**
+ * Is this TSV line the column-header row? With Goals the Reports service expands each
+ * conversion/revenue field into one column per goal × attribution model, named
+ * `<field>_<goalId>_<model>`, so the header can be wider than fieldNames.
+ */
+export function isColumnHeader(cells: string[], fieldNames: string[]): boolean {
+  if (cells.length < fieldNames.length || cells[0] !== fieldNames[0]) return false;
+  return cells.every((c) => fieldNames.some((f) => c === f || c.startsWith(`${f}_`)));
+}
+
+/**
  * Cuts a raw report TSV to the row/byte caps, keeping the column-header line
  * (detected the same way as parseRows) outside the row count. Returns the
  * original text untouched when everything fits.
@@ -90,8 +100,7 @@ export function truncateTsv(
     if (!line.trim()) continue;
     if (!sawHeader) {
       sawHeader = true;
-      const cells = line.split("\t");
-      if (cells.length === fieldNames.length && fieldNames.every((f, i) => cells[i] === f)) {
+      if (isColumnHeader(line.split("\t"), fieldNames)) {
         kept.push(line);
         bytes += line.length + 1;
         continue;
@@ -171,9 +180,7 @@ export function parseRows(tsv: string, fieldNames: string[]): ParsedRow[] {
     // "1 row, all zeros" and invents reasons instead of reporting an empty slice.
     if (!sawHeader) {
       sawHeader = true;
-      if (cells.length === fieldNames.length && fieldNames.every((f, i) => cells[i] === f)) {
-        continue;
-      }
+      if (isColumnHeader(cells, fieldNames)) continue;
     }
     const dims: Record<string, string> = {};
     const m: Record<string, number> = {};
