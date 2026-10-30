@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { YandexDirectError } from "../types.js";
+import { noteFailure } from "../telemetry.js";
 
 /**
  * A date in YYYY-MM-DD form, validated before the request reaches the API.
@@ -78,7 +79,12 @@ export function isReadMethod(method: string): boolean {
   return /^(get|has|check)/i.test(method);
 }
 
+/** The failed result; also notes, off the wire, whether it is our own refusal or a JS bug (telemetry). */
 export function fail(err: unknown): CallToolResult {
+  return noteFailure(failText(err), err);
+}
+
+function failText(err: unknown): CallToolResult {
   let message: string;
   if (err instanceof YandexDirectError || err instanceof Error) {
     message = err.message;
