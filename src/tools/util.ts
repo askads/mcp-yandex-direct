@@ -79,7 +79,7 @@ export function isReadMethod(method: string): boolean {
   return /^(get|has|check)/i.test(method);
 }
 
-/** The failed result; also notes, off the wire, whether it is our own refusal or a JS bug (telemetry). */
+/** Also notes the failure's origin for telemetry (noteFailure). */
 export function fail(err: unknown): CallToolResult {
   return noteFailure(failText(err), err);
 }
