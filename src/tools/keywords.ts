@@ -1,7 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, toMicros, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, toMicros, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+
+// keywords.get FieldNames (checked live 2026-10-30).
+const KEYWORD_FIELDS = [
+  "Id", "Keyword", "State", "Status", "AdGroupId", "CampaignId", "Bid", "AutotargetingSearchBidIsAuto",
+  "ContextBid", "StrategyPriority", "UserParam1", "UserParam2", "Productivity", "StatisticsSearch",
+  "StatisticsNetwork", "ServingStatus", "AutotargetingCategories", "AutotargetingBrandOptions",
+  "AutotargetingMode", "AutotargetingBrief", "AutotargetingBriefSuggests",
+] as const;
 
 const DEFAULT_FIELDS = ["Id", "Keyword", "AdGroupId", "CampaignId", "Bid", "ContextBid", "State", "Status"];
 
@@ -12,12 +20,12 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
       title: "Список ключевых фраз",
       annotations: READ_ONLY,
       description:
-        "Возвращает список ключевых фраз с фильтром по кампании, группе объявлений или id. Bid и ContextBid отдаются в валюте аккаунта.",
+        "Возвращает список ключевых фраз. Нужно передать campaignIds, adGroupIds или ids — API Яндекс Директа требует хотя бы один из них. Bid и ContextBid отдаются в валюте аккаунта.",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
         ids: z.array(z.number().int()).optional().describe("Фильтр по id ключевых фраз."),
-        fieldNames: z.array(z.string()).optional().describe("Какие поля ключевой фразы вернуть."),
+        fieldNames: z.array(z.enum(KEYWORD_FIELDS)).optional().describe("Какие поля ключевой фразы вернуть."),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
@@ -28,6 +36,9 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
     },
     async ({ campaignIds, adGroupIds, ids, fieldNames, limit, offset, autoPaginate }) => {
       try {
+        if (!campaignIds?.length && !adGroupIds?.length && !ids?.length) {
+          return fail(NO_SELECTION("campaignIds, adGroupIds или ids"));
+        }
         const selection = compact({
           CampaignIds: campaignIds?.length ? campaignIds : undefined,
           AdGroupIds: adGroupIds?.length ? adGroupIds : undefined,

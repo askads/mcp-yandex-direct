@@ -22,6 +22,16 @@ const CAMPAIGN_TYPES = [
 const CAMPAIGN_STATES = ["ON", "OFF", "SUSPENDED", "ENDED", "CONVERTED", "ARCHIVED"] as const;
 const CAMPAIGN_STATUSES = ["ACCEPTED", "DRAFT", "MODERATION", "REJECTED"] as const;
 
+// campaigns.get FieldNames as v501 lists them (checked live 2026-10-30). Type-specific
+// settings (strategy, TextCampaign.*, UnifiedCampaign.*) are separate *FieldNames params,
+// not values here — an enum keeps the model from sending them and drawing code 8000.
+const CAMPAIGN_FIELDS = [
+  "BlockedIps", "ExcludedSites", "Currency", "DailyBudget", "Notification", "EndDate", "Funds",
+  "ClientInfo", "Id", "Name", "NegativeKeywords", "RepresentedBy", "StartDate", "CreateTime",
+  "Statistics", "State", "Status", "StatusPayment", "StatusClarification", "SourceId",
+  "TimeTargeting", "TimeZone", "Type",
+] as const;
+
 const DEFAULT_FIELDS = [
   "Id",
   "Name",
@@ -60,7 +70,10 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           .array(z.enum(CAMPAIGN_STATUSES))
           .optional()
           .describe("Фильтр по статусам модерации."),
-        fieldNames: z.array(z.string()).optional().describe("Какие поля кампании вернуть."),
+        fieldNames: z
+          .array(z.enum(CAMPAIGN_FIELDS))
+          .optional()
+          .describe("Какие поля кампании вернуть. Стратегии и настройки конкретного типа кампании здесь не запрашиваются."),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z

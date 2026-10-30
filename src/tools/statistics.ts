@@ -148,7 +148,9 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           .array(z.enum(ATTRIBUTION_MODELS))
           .min(1)
           .optional()
-          .describe("Модели атрибуции для конверсий. По умолчанию LC (последний переход)."),
+          .describe(
+            "Модели атрибуции для конверсий по целям из goals; без goals не применяются (API их тогда не принимает). По умолчанию LC (последний переход).",
+          ),
         includeVat: z.boolean().optional().describe("Включать ли НДС в расход. По умолчанию true."),
         // Aggregation controls — apply to SEARCH_QUERY_PERFORMANCE_REPORT (computed summary).
         sortBy: z
@@ -271,7 +273,8 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           IncludeDiscount: "NO",
           // Goals/AttributionModels sit NEXT TO SelectionCriteria, not inside it.
           ...(goals?.length ? { Goals: goals } : {}),
-          ...(attributionModels?.length ? { AttributionModels: attributionModels } : {}),
+          // The API accepts AttributionModels only next to Goals (code 4000 otherwise).
+          ...(goals?.length && attributionModels?.length ? { AttributionModels: attributionModels } : {}),
         };
 
         const tsv = await client.report(params);

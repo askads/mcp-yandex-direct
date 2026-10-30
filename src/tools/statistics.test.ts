@@ -291,6 +291,13 @@ test("omitting goals sends neither Goals nor AttributionModels", async () => {
   assert.equal("AttributionModels" in calls[0], false);
 });
 
+test("attributionModels without goals are not sent (API code 4000)", async () => {
+  const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
+  const res = await tools.get_statistics({ attributionModels: ["LC"] });
+  assert.equal(res.isError ?? false, false);
+  assert.equal("AttributionModels" in calls[0], false);
+});
+
 test("arbitrary filters are ANDed with the campaignIds shorthand", async () => {
   const { calls, tools } = harness(() => `${CAMPAIGN_HEADER}\n1\tC\t1\t1\t1\t1\t1\n`);
   await tools.get_statistics({

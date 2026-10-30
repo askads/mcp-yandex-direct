@@ -5,6 +5,19 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 проект придерживается [семантического версионирования](https://semver.org/lang/ru/).
 
+## [1.8.0] — 2026-10-30
+
+### Исправлено
+- `list_campaigns`, `list_ad_groups`, `list_ads`, `list_keywords`: `fieldNames` — перечисление
+  допустимых полей API вместо произвольной строки. Выдуманное поле отклоняется ещё схемой, и модель видит
+  список, а не ошибку 8000 Директа после потраченного запроса.
+- `list_ads`: тексты и ссылки (`Title`, `Text`, `Href`, …) в `fieldNames` уходят в `TextAdFieldNames` и
+  приходят в объекте `TextAd`. Раньше их нельзя было получить вовсе, а попытка давала ошибку 8000.
+- `list_ads`, `list_keywords`, `list_ad_groups`: без `campaignIds`/`adGroupIds`/`ids` отвечают сразу, не
+  отправляя запрос, который API всё равно отклонит кодом 4001.
+- `get_statistics`: `attributionModels` без `goals` больше не отправляются — API отклонял такой отчёт
+  кодом 4000.
+
 ## [1.7.0] — 2026-10-26
 
 ### Добавлено
@@ -317,6 +330,7 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
+[1.8.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.5.5...v1.6.0
 [1.5.5]: https://github.com/askads/mcp-yandex-direct/compare/v1.5.4...v1.5.5

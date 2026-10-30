@@ -1,7 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+
+// adgroups.get FieldNames (checked live 2026-10-30).
+const AD_GROUP_FIELDS = [
+  "Id", "CampaignId", "Status", "Name", "RegionIds", "RestrictedRegionIds", "NegativeKeywords",
+  "NegativeKeywordSharedSetIds", "Type", "TrackingParams", "Subtype", "ServingStatus",
+] as const;
 
 const DEFAULT_FIELDS = ["Id", "Name", "CampaignId", "RegionIds", "Status", "Type"];
 
@@ -16,7 +22,7 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         ids: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
-        fieldNames: z.array(z.string()).optional().describe("Какие поля группы вернуть."),
+        fieldNames: z.array(z.enum(AD_GROUP_FIELDS)).optional().describe("Какие поля группы вернуть."),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
@@ -27,6 +33,7 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
     },
     async ({ campaignIds, ids, fieldNames, limit, offset, autoPaginate }) => {
       try {
+        if (!campaignIds?.length && !ids?.length) return fail(NO_SELECTION("campaignIds или ids"));
         const selection = compact({
           CampaignIds: campaignIds?.length ? campaignIds : undefined,
           Ids: ids?.length ? ids : undefined,

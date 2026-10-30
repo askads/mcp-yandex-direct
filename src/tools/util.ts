@@ -166,6 +166,14 @@ export function buildPage(
   return { Limit: limit ?? DEFAULT_PAGE_LIMIT, Offset: offset ?? 0 };
 }
 
+/**
+ * ads/keywords/adgroups.get reject a SelectionCriteria without an id list (code 4001) —
+ * answer before the request, naming the ids to pass and where to get them.
+ */
+export const NO_SELECTION = (params: string): string =>
+  `Нужен хотя бы один фильтр: ${params}. API Яндекс Директа не отдаёт эти объекты по всему аккаунту — ` +
+  "сначала получить id кампаний через list_campaigns и передать их в campaignIds (не больше 10 за вызов).";
+
 /** Drops keys whose value is `undefined` so they are not sent to the API. */
 export function compact<T extends Record<string, unknown>>(obj: T): T {
   return Object.fromEntries(

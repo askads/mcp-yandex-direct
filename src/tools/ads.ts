@@ -1,10 +1,25 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
 
 const AD_STATES = ["ON", "OFF", "SUSPENDED", "OFF_BY_MONITORING", "ARCHIVED"] as const;
 const AD_STATUSES = ["ACCEPTED", "DRAFT", "MODERATION", "PREACCEPTED", "REJECTED"] as const;
+
+// ads.get FieldNames (checked live 2026-10-30).
+const AD_FIELDS = [
+  "AdCategories", "AgeLabel", "AdGroupId", "CampaignId", "Id", "State", "Status", "StatusClarification",
+  "Type", "Subtype",
+] as const;
+// TextAdFieldNames: the ad's texts and links live here, not in FieldNames. Accepted in the
+// same fieldNames array and routed to TextAdFieldNames — "Title"/"Text" in FieldNames was
+// the usual way to draw code 8000.
+const TEXT_AD_FIELDS = [
+  "Title", "Title2", "Text", "Href", "FinalUrl", "DisplayDomain", "DisplayUrlPath", "Mobile",
+  "SitelinkSetId", "VCardId", "AdImageHash", "AdExtensions", "TurboPageId", "BusinessId",
+  "TrackingParams", "LfHref", "LfButtonText", "ErirAdDescription",
+] as const;
+const TEXT_AD_FIELD_SET: ReadonlySet<string> = new Set(TEXT_AD_FIELDS);
 
 const DEFAULT_FIELDS = ["Id", "AdGroupId", "CampaignId", "Status", "State", "Type"];
 
@@ -14,14 +29,20 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
     {
       title: "Список объявлений",
       annotations: READ_ONLY,
-      description: "Возвращает список объявлений с необязательными фильтрами по кампании, группе, id, состоянию и статусу.",
+      description:
+        "Возвращает список объявлений. Нужно передать campaignIds, adGroupIds или ids — API Яндекс Директа требует хотя бы один из них; states и statuses только сужают выборку.",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
         ids: z.array(z.number().int()).optional().describe("Фильтр по id объявлений."),
         states: z.array(z.enum(AD_STATES)).optional().describe("Фильтр по состояниям объявлений."),
         statuses: z.array(z.enum(AD_STATUSES)).optional().describe("Фильтр по статусам модерации."),
-        fieldNames: z.array(z.string()).optional().describe("Какие поля объявления вернуть."),
+        fieldNames: z
+          .array(z.enum([...AD_FIELDS, ...TEXT_AD_FIELDS]))
+          .optional()
+          .describe(
+            "Какие поля объявления вернуть. Тексты и ссылки (Title, Title2, Text, Href, …) приходят в объекте TextAd.",
+          ),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
@@ -32,6 +53,11 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
     },
     async ({ campaignIds, adGroupIds, ids, states, statuses, fieldNames, limit, offset, autoPaginate }) => {
       try {
+        if (!campaignIds?.length && !adGroupIds?.length && !ids?.length) {
+          return fail(NO_SELECTION("campaignIds, adGroupIds или ids"));
+        }
+        const adFields = fieldNames?.filter((f) => !TEXT_AD_FIELD_SET.has(f)) ?? [];
+        const textAdFields = fieldNames?.filter((f) => TEXT_AD_FIELD_SET.has(f)) ?? [];
         const selection = compact({
           CampaignIds: campaignIds?.length ? campaignIds : undefined,
           AdGroupIds: adGroupIds?.length ? adGroupIds : undefined,
@@ -41,8 +67,10 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
         });
         const params: Record<string, unknown> = {
           SelectionCriteria: selection,
-          FieldNames: fieldNames?.length ? fieldNames : DEFAULT_FIELDS,
+          // FieldNames may not be empty: asking only for texts still returns the ids.
+          FieldNames: adFields.length ? adFields : textAdFields.length ? ["Id"] : DEFAULT_FIELDS,
         };
+        if (textAdFields.length) params.TextAdFieldNames = textAdFields;
         const page = buildPage(limit, offset);
         if (page) params.Page = page;
         const result = autoPaginate
