@@ -35,6 +35,22 @@
 >
 > **Ассистент:** Находит кампании, строит отчёт по группам объявлений и показывает расход в валюте аккаунта.
 
+## Видео: подключение за минуту
+
+Клик по превью открывает видео со звуком. Данные в роликах демонстрационные.
+
+| Claude Code | Codex |
+|---|---|
+| [![Подключение в Claude Code](https://share.gistrec.cloud/askads-mcp/terminal-direct-claude.gif)](https://share.gistrec.cloud/askads-mcp/terminal-direct-claude.mp4) | [![Подключение в Codex](https://share.gistrec.cloud/askads-mcp/terminal-direct-codex.gif)](https://share.gistrec.cloud/askads-mcp/terminal-direct-codex.mp4) |
+
+По URL в браузере — коннектор AskAds (Директ, Метрика и Вебмастер вместе, только чтение):
+
+| ChatGPT | Claude |
+|---|---|
+| [![Подключение в ChatGPT](https://share.gistrec.cloud/askads-mcp/chatgpt.gif)](https://share.gistrec.cloud/askads-mcp/chatgpt.mp4) | [![Подключение в Claude](https://share.gistrec.cloud/askads-mcp/claude.gif)](https://share.gistrec.cloud/askads-mcp/claude.mp4) |
+
+Все видео на одной странице: [share.gistrec.cloud/askads-mcp](https://share.gistrec.cloud/askads-mcp/index.html).
+
 ## Содержание
 
 - [Быстрый старт](#быстрый-старт)
