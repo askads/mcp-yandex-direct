@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_FIELDS_BY_TYPE, registerStatisticsTools, REPORT_TYPES } from "./statistics.js";
 import { aggregateReport, truncateTsv } from "./statistics.aggregate.js";
+import { YandexDirectClient } from "../client.js";
 
 type Args = Record<string, unknown>;
 type Handler = (args: Args) => Promise<{ content: { text: string }[]; isError?: boolean }>;
@@ -419,4 +420,43 @@ test("aggregate: GoalsRoi is a numeric metric, not summed", () => {
   const a = aggregateReport("a\t100\t2.5\nb\t50\t-0.5", fields, "SEARCH_QUERY_PERFORMANCE_REPORT");
   assert.equal(a.top[0].GoalsRoi, 2.5);
   assert.equal("GoalsRoi" in a.totals, false);
+});
+
+test("two reports requested in the same millisecond get different ReportNames", async () => {
+  const { calls, tools } = harness(() => "");
+  const realNow = Date.now;
+  Date.now = () => 1_700_000_000_000;
+  try {
+    await Promise.all([
+      tools.get_statistics({ dateRangeType: "LAST_7_DAYS" }),
+      tools.get_statistics({ dateRangeType: "LAST_30_DAYS" }),
+    ]);
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(calls.length, 2);
+  assert.notEqual(calls[0].ReportName, calls[1].ReportName);
+});
+
+test("every poll of one offline report resends the same ReportName", async () => {
+  const original = globalThis.fetch;
+  const names: string[] = [];
+  globalThis.fetch = (async (_url: unknown, init: RequestInit) => {
+    names.push(JSON.parse(String(init.body)).params.ReportName);
+    return names.length < 3
+      ? new Response("", { status: 201, headers: { retryIn: "0" } })
+      : new Response("CampaignId\tClicks\n1\t2\n", { status: 200 });
+  }) as typeof fetch;
+  try {
+    const tools: Record<string, Handler> = {};
+    const server = { registerTool: (name: string, _cfg: unknown, h: Handler) => (tools[name] = h) };
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    registerStatisticsTools(server as never, client);
+    const res = await tools.get_statistics({ fieldNames: ["CampaignId", "Clicks"] });
+    assert.notEqual(res.isError, true);
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.equal(names.length, 3);
+  assert.equal(new Set(names).size, 1);
 });

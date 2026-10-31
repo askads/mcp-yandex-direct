@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { YandexDirectError } from "../types.js";
@@ -13,6 +14,14 @@ import { noteFailure } from "../telemetry.js";
  */
 export const isoDate = () =>
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата должна быть в формате YYYY-MM-DD");
+
+/**
+ * ReportName for one tool call: Reports answers code 4000 to a reused name with other params,
+ * and a timestamp alone repeats within a millisecond. Built once, so every poll resends it.
+ */
+export function reportName(prefix: string): string {
+  return `${prefix}-${Date.now()}-${randomBytes(4).toString("hex")}`;
+}
 
 export function ok(data: unknown): CallToolResult {
   // Compact JSON (no indent): the consumer is an LLM, pretty-printing only burns tokens.

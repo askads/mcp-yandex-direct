@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, isoDate, ok, READ_ONLY, toMicros } from "./util.js";
+import { fail, isoDate, ok, READ_ONLY, reportName, toMicros } from "./util.js";
 import { aggregateReport, countDataRows, MAX_TOP_N, truncateTsv } from "./statistics.aggregate.js";
 
 export const REPORT_TYPES = [
@@ -265,7 +265,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         const params = {
           SelectionCriteria: selection,
           FieldNames: fieldNames?.length ? fieldNames : DEFAULT_FIELDS_BY_TYPE[type],
-          ReportName: `mcp-${type}-${Date.now()}`,
+          ReportName: reportName(`mcp-${type}`),
           ReportType: type,
           DateRangeType: range,
           Format: "TSV",
