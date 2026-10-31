@@ -262,6 +262,20 @@ test("Direct's 'no access to this client' is a permission outcome, not auth", ()
   );
 });
 
+test("an API code at the head beats words quoted in the text", () => {
+  // Real clients.get answer: the allowed values include ForbiddenPlatform.
+  const text =
+    "[8000] Некорректный запрос: Элемент массива FieldNames содержит неверное значение перечисления, ожидается одно из значений: AccountQuality, Archived, ClientId, ClientInfo, CountryId, CreatedAt, Currency, Grants, Bonuses, Login, Notification, OverdraftSumAvailable, Phone, Representatives, Restrictions, Settings, Type, Subtype, VatRate, ManagedLogins, ForbiddenPlatform, AvailableCampaignTypes, AvailableAdGroupTypes, ProductMode (request_id: 4573631628979678599)";
+  assert.equal(toolOutcome(errorResult(`Ошибка: ${text}`)), "error_invalid_request");
+  const thrown = new Error(text);
+  thrown.name = "YandexDirectError";
+  assert.equal(toolOutcome(undefined, thrown), "error_invalid_request");
+  assert.equal(toolOutcome(errorResult('Ошибка: Ошибка Live v4 "GetBalance": [54] Нет прав, timed out')), "error_permission");
+  // 53 stays with the text; a code past the head still counts through the patterns.
+  assert.equal(toolOutcome(errorResult("Ошибка: [53] Ошибка авторизации: Недействительный OAuth-токен")), "error_auth");
+  assert.equal(toolOutcome(errorResult(`Ошибка: ${"x".repeat(80)} отвечает [56]`)), "error_rate_limit");
+});
+
 test("telemetry never changes what the tool returns or throws", async () => {
   const sent: Sent[] = [];
   const telemetry = new Telemetry("1.0.0", true, recordingFetch(sent));
