@@ -4,6 +4,14 @@ import type { YandexDirectClient } from "../client.js";
 import { currentClientLogin } from "../clientLogin.js";
 import { fail, ok, READ_ONLY } from "./util.js";
 
+// clients.get FieldNames (checked live 2026-10-31, each accepted on its own).
+const CLIENT_FIELDS = [
+  "AccountQuality", "Archived", "ClientId", "ClientInfo", "CountryId", "CreatedAt", "Currency", "Grants",
+  "Bonuses", "Login", "Notification", "OverdraftSumAvailable", "Phone", "Representatives", "Restrictions",
+  "Settings", "Type", "Subtype", "VatRate", "ManagedLogins", "ForbiddenPlatform", "AvailableCampaignTypes",
+  "AvailableAdGroupTypes", "ProductMode",
+] as const;
+
 const DEFAULT_FIELDS = [
   "Login",
   "ClientId",
@@ -24,7 +32,7 @@ export function registerAccountTools(server: McpServer, client: YandexDirectClie
         "Возвращает данные текущего аккаунта рекламодателя (логин, валюта, тип, страна) через сервис `clients` Яндекс Директа.",
       inputSchema: {
         fieldNames: z
-          .array(z.string())
+          .array(z.enum(CLIENT_FIELDS))
           .optional()
           .describe("Какие поля клиента вернуть. По умолчанию — типовой набор."),
       },

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
+import { registerAccountTools } from "./account.js";
 import { registerAdTools } from "./ads.js";
 import { registerAdGroupTools } from "./adGroups.js";
 import { registerCampaignTools } from "./campaigns.js";
@@ -45,6 +46,12 @@ for (const { register, tool, valid, args } of LISTS) {
     assert.equal(schema.safeParse({ ...args, fieldNames: ["Budget"] }).success, false);
   });
 }
+
+test("get_account_info: fieldNames outside the clients.get enum are rejected by the schema", () => {
+  const { schema } = harness(registerAccountTools).tools.get_account_info;
+  assert.equal(schema.safeParse({ fieldNames: ["Login", "Currency", "Representatives"] }).success, true);
+  assert.equal(schema.safeParse({ fieldNames: ["Balance"] }).success, false);
+});
 
 for (const { register, tool } of LISTS.slice(1)) {
   test(`${tool}: no id filter answers before the request (API code 4001)`, async () => {
