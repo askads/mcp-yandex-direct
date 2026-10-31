@@ -12,6 +12,7 @@ import {
   okOrPartial,
   toMicros,
 } from "./util.js";
+import { toolOutcome } from "../telemetry.js";
 
 function textOf(result: CallToolResult): string {
   return result.content.map((c) => ("text" in c ? c.text : "")).join("");
@@ -73,6 +74,56 @@ test("okOrPartial flags an all-failed action response", () => {
 test("okOrPartial ignores arrays that are not *Results", () => {
   const result = okOrPartial({ Campaigns: [{ Id: 1, Errors: [{ Message: "x" }] }] });
   assert.equal(result.isError, undefined);
+});
+
+test("okOrPartial lists warnings without flagging an error", () => {
+  const result = okOrPartial({
+    AddResults: [
+      {
+        Id: 42,
+        Warnings: [
+          { Code: 10170, Message: "Поле Title2 объединено с полем Title" },
+          { Code: 10120, Message: "Параметр не будет применен", Details: "Mobile" },
+        ],
+      },
+    ],
+  });
+  assert.equal(result.isError, undefined);
+  assert.equal(toolOutcome(result), "ok");
+  assert.equal(
+    textOf(result),
+    "Предупреждения API (2), операция выполнена с оговорками:\n" +
+      "- Id 42: [10170] Поле Title2 объединено с полем Title\n" +
+      "- Id 42: [10120] Параметр не будет применен: Mobile\n\n" +
+      '{"AddResults":[{"Id":42,"Warnings":[{"Code":10170,"Message":"Поле Title2 объединено с полем Title"},' +
+      '{"Code":10120,"Message":"Параметр не будет применен","Details":"Mobile"}]}]}',
+  );
+});
+
+test("okOrPartial shows both errors and warnings on a partial failure", () => {
+  const result = okOrPartial({
+    UpdateResults: [
+      { Id: 1, Warnings: [{ Message: "Ставка не будет применена" }] },
+      { Errors: [{ Code: 8800, Message: "Object not found" }], Warnings: [{ Code: 10000 }] },
+    ],
+  });
+  assert.equal(result.isError, true);
+  const text = textOf(result);
+  assert.ok(
+    text.startsWith(
+      "Ошибки в 1 из 2 объектов:\n- [8800] Object not found\n\n" +
+        "Предупреждения API (2), операция выполнена с оговорками:\n" +
+        "- Id 1: Ставка не будет применена\n" +
+        "- объект 2: [10000] Предупреждение без текста\n\n{",
+    ),
+    text,
+  );
+});
+
+test("okOrPartial output is unchanged without errors and warnings", () => {
+  const payload = { AddResults: [{ Id: 1 }, { Id: 2, Warnings: [] }] };
+  assert.deepEqual(okOrPartial(payload), { content: [{ type: "text", text: JSON.stringify(payload) }] });
+  assert.deepEqual(okOrPartial("raw"), { content: [{ type: "text", text: "raw" }] });
 });
 
 test("compact drops only undefined values, keeping null/0/empty", () => {
