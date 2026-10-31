@@ -253,18 +253,41 @@ export function errorDetail(text: string): string {
   return parts.join("; ").slice(0, DETAIL_MAX);
 }
 
-/** Set by fail(), never serialized: our own refusal ("local") or a bug in our code ("internal"). */
-const FAILURE_ORIGIN = new WeakMap<object, { origin: "local" | "internal"; text: string }>();
+type NetworkFailure = { reason: ToolOutcome; text: string };
+
+/** Set by fail(), never serialized: our own refusal ("local"), a bug in our code ("internal") or a failed fetch ("network"). */
+const FAILURE_ORIGIN = new WeakMap<
+  object,
+  { origin: "local" | "internal"; text: string } | ({ origin: "network" } & NetworkFailure)
+>();
 const JS_ERRORS = new Set(["TypeError", "ReferenceError", "RangeError", "SyntaxError", "EvalError", "URIError"]);
 
 function jsBug(err: unknown): string | undefined {
   return err instanceof Error && JS_ERRORS.has(err.name) ? `${err.name}: ${err.message.split("\n")[0]}` : undefined;
 }
 
+/**
+ * Node's fetch rejects a network failure as TypeError("fetch failed") with the socket/DNS/TLS error
+ * in `cause`. Only cause.code leaves the machine: cause.message names hosts and addresses.
+ */
+function fetchFailure(err: unknown): NetworkFailure | undefined {
+  if (!(err instanceof Error) || err.name !== "TypeError" || err.message !== "fetch failed") return undefined;
+  const cause: unknown = err.cause;
+  if (!cause || typeof cause !== "object") return undefined;
+  const raw = (cause as { code?: unknown }).code;
+  const code = typeof raw === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(raw) ? raw : "";
+  return {
+    reason: /TIMEOUT|TIMEDOUT/.test(code) ? "error_timeout" : "error_network",
+    text: code ? `fetch failed; ${code.toLowerCase()}` : "fetch failed",
+  };
+}
+
 export function noteFailure<T>(result: T, err: unknown): T {
   try {
     if (result && typeof result === "object") {
+      const net = fetchFailure(err);
       if (typeof err === "string") FAILURE_ORIGIN.set(result, { origin: "local", text: err });
+      else if (net) FAILURE_ORIGIN.set(result, { origin: "network", ...net });
       else {
         const bug = jsBug(err);
         if (bug) FAILURE_ORIGIN.set(result, { origin: "internal", text: bug });
@@ -289,8 +312,12 @@ function reportCall(telemetry: Telemetry, tool: string, value: unknown, thrown: 
     let detail = "";
     if (reason !== "ok") {
       const noted = value && typeof value === "object" ? FAILURE_ORIGIN.get(value) : undefined;
+      const net = noted?.origin === "network" ? noted : thrown ? fetchFailure(value) : undefined;
       const bug = noted?.origin === "internal" ? noted.text : thrown ? jsBug(value) : undefined;
-      if (bug) {
+      if (net) {
+        reason = net.reason;
+        detail = net.text;
+      } else if (bug) {
         reason = "error_internal";
         detail = maskedOwnText("internal: ", bug, false);
       } else if (noted?.origin === "local") {
