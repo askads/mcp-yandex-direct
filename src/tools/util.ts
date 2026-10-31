@@ -37,28 +37,45 @@ interface ObjectError {
   Details?: string;
 }
 
+function formatNotification(err: ObjectError, fallback: string): string {
+  const code = err?.Code !== undefined ? `[${err.Code}] ` : "";
+  const message = err?.Message ?? fallback;
+  const details = err?.Details ? `: ${err.Details}` : "";
+  return `${code}${message}${details}`;
+}
+
 /**
- * Scans a write response for per-object failures. The Yandex Direct JSON API
+ * Scans a write response for per-object outcomes. The Yandex Direct JSON API
  * returns HTTP 200 with the outcome of each object in an `*Results` array
  * (AddResults, UpdateResults, DeleteResults, ActionResults, SetResults, ...);
  * a failed object carries a non-empty `Errors` array while the request as a
- * whole still "succeeds".
+ * whole still "succeeds". `Warnings` mean the object was saved, but not exactly
+ * as sent (a parameter ignored, a field merged, the ad type changed).
  */
-function collectObjectErrors(result: unknown): { failed: number; total: number; messages: string[] } {
-  const out = { failed: 0, total: 0, messages: [] as string[] };
+function collectObjectNotifications(result: unknown): {
+  failed: number;
+  total: number;
+  messages: string[];
+  warnings: string[];
+} {
+  const out = { failed: 0, total: 0, messages: [] as string[], warnings: [] as string[] };
   if (!result || typeof result !== "object") return out;
   for (const [key, value] of Object.entries(result as Record<string, unknown>)) {
     if (!key.endsWith("Results") || !Array.isArray(value)) continue;
-    for (const item of value) {
+    for (const [index, item] of value.entries()) {
       out.total++;
-      const errors = (item as { Errors?: unknown })?.Errors;
+      const { Errors: errors, Warnings: warnings, Id: id } =
+        (item ?? {}) as { Errors?: unknown; Warnings?: unknown; Id?: unknown };
       if (Array.isArray(errors) && errors.length > 0) {
         out.failed++;
         for (const err of errors as ObjectError[]) {
-          const code = err?.Code !== undefined ? `[${err.Code}] ` : "";
-          const message = err?.Message ?? "Неизвестная ошибка";
-          const details = err?.Details ? `: ${err.Details}` : "";
-          out.messages.push(`${code}${message}${details}`);
+          out.messages.push(formatNotification(err, "Неизвестная ошибка"));
+        }
+      }
+      if (Array.isArray(warnings) && warnings.length > 0) {
+        const where = typeof id === "number" ? `Id ${id}` : `объект ${index + 1}`;
+        for (const warn of warnings as ObjectError[]) {
+          out.warnings.push(`${where}: ${formatNotification(warn, "Предупреждение без текста")}`);
         }
       }
     }
@@ -69,18 +86,31 @@ function collectObjectErrors(result: unknown): { failed: number; total: number; 
 /**
  * Like {@link ok}, but inspects per-object `*Results` arrays and flags the
  * response as an error when any object failed — so partial failures are not
- * silently reported as success.
+ * silently reported as success. Warnings are listed before the payload but do
+ * not set `isError`: the objects were saved.
  */
 export function okOrPartial(result: unknown): CallToolResult {
-  const { failed, total, messages } = collectObjectErrors(result);
+  const { failed, total, messages, warnings } = collectObjectNotifications(result);
   const body = typeof result === "string" ? result : JSON.stringify(result) ?? "null";
-  if (failed === 0) return { content: [{ type: "text", text: body }] };
-  const header =
-    failed === total
-      ? `Ошибки во всех объектах (${total}):`
-      : `Ошибки в ${failed} из ${total} объектов:`;
-  const text = `${header}\n${messages.map((m) => `- ${m}`).join("\n")}\n\n${body}`;
-  return { content: [{ type: "text", text }], isError: true };
+  const blocks: string[] = [];
+  if (failed > 0) {
+    const header =
+      failed === total
+        ? `Ошибки во всех объектах (${total}):`
+        : `Ошибки в ${failed} из ${total} объектов:`;
+    blocks.push(`${header}\n${messages.map((m) => `- ${m}`).join("\n")}`);
+  }
+  if (warnings.length > 0) {
+    blocks.push(
+      `Предупреждения API (${warnings.length}), операция выполнена с оговорками:\n` +
+        warnings.map((w) => `- ${w}`).join("\n"),
+    );
+  }
+  if (blocks.length === 0) return { content: [{ type: "text", text: body }] };
+  const text = `${blocks.join("\n\n")}\n\n${body}`;
+  const out: CallToolResult = { content: [{ type: "text", text }] };
+  if (failed > 0) out.isError = true;
+  return out;
 }
 
 /** Methods that only read data and never mutate the account (get/has/check). */
