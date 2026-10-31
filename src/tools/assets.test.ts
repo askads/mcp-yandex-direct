@@ -81,38 +81,7 @@ test("delete_callouts passes ids in SelectionCriteria", async () => {
   assert.deepEqual(calls[0].params, { SelectionCriteria: { Ids: [11] } });
 });
 
-test("get_vcards fetches by required ids and requests Phone", async () => {
-  const { calls, tools } = harness();
-  await tools.get_vcards({ ids: [42] });
-  assert.equal(calls[0].service, "vcards");
-  assert.deepEqual(calls[0].params.SelectionCriteria, { Ids: [42] });
-  assert.ok(calls[0].params.FieldNames.includes("Phone"));
-});
-
-test("create_vcard builds the required fields and nested Phone", async () => {
-  const { calls, tools } = harness();
-  const res = await tools.create_vcard({
-    campaignId: 7,
-    country: "Россия",
-    city: "Москва",
-    companyName: "Acme",
-    workTime: "1#5#9#00#18#00",
-    phone: { countryCode: "+7", cityCode: "495", phoneNumber: "1234567" },
-  });
-  assert.equal(res.isError, undefined);
-  assert.equal(calls[0].method, "add");
-  assert.deepEqual(calls[0].params.VCards[0], {
-    CampaignId: 7,
-    Country: "Россия",
-    City: "Москва",
-    CompanyName: "Acme",
-    WorkTime: "1#5#9#00#18#00",
-    Phone: { CountryCode: "+7", CityCode: "495", PhoneNumber: "1234567" },
-  });
-});
-
-test("delete_vcards passes ids in SelectionCriteria", async () => {
-  const { calls, tools } = harness();
-  await tools.delete_vcards({ ids: [42] });
-  assert.deepEqual(calls[0].params, { SelectionCriteria: { Ids: [42] } });
+test("vcard tools are not registered: Direct answers 3500 to every vcards method", () => {
+  const { tools } = harness();
+  for (const name of ["get_vcards", "create_vcard", "delete_vcards"]) assert.equal(tools[name], undefined, name);
 });

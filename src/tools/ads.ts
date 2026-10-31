@@ -90,8 +90,9 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
       annotations: WRITE_CREATE,
       description:
         "Создаёт текстовое объявление (TextAd) в группе объявлений. Новые объявления создаются черновиками. " +
-        "TextAdAdd требует хотя бы одно из Href/TurboPageId/VCardId/BusinessId — этот инструмент передаёт посадочную " +
-        "страницу через href (обязателен); объявление с BusinessId вместо ссылки создаётся через raw_request.",
+        "TextAdAdd требует хотя бы одно из Href/TurboPageId/BusinessId — этот инструмент передаёт посадочную " +
+        "страницу через href (обязателен); объявление с BusinessId вместо ссылки создаётся через raw_request. " +
+        "Визитки (VCardId) Директ больше не поддерживает: контакты задаются организацией из Яндекс Бизнеса (BusinessId).",
       inputSchema: {
         adGroupId: z.number().int().describe("Id родительской группы объявлений."),
         title: z.string().min(1).max(56).describe("Заголовок (Title 1), до 56 символов."),

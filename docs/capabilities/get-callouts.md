@@ -42,7 +42,6 @@
 
 - [Добавить уточнения](./add-callouts.md) — `add_callouts`
 - [Создать набор быстрых ссылок](./create-sitelinks-set.md) — `create_sitelinks_set`
-- [Создать визитку](./create-vcard.md) — `create_vcard`
 - [Удалить уточнения](./delete-callouts.md) — `delete_callouts`
 
 ## Технические сведения

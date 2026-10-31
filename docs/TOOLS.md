@@ -49,7 +49,6 @@
 | --- | --- |
 | `get_sitelinks` / `create_sitelinks_set` / `delete_sitelinks` | Наборы быстрых ссылок. |
 | `get_callouts` / `add_callouts` / `delete_callouts` | Уточнения. |
-| `get_vcards` / `create_vcard` / `delete_vcards` | Виртуальные визитки. |
 | `get_ad_images` / `get_ad_videos` / `get_creatives` | Чтение библиотек изображений / видео / креативов. |
 | `upload_ad_image` | Загрузка изображения (по URL или base64) в библиотеку, возвращает `AdImageHash` для объявления. |
 

@@ -16,7 +16,7 @@
 
 ## Что нужно передать
 
-- `service` — **обязательно**. Путь сервиса строчными буквами, например campaigns, bidmodifiers, sitelinks, vcards, changes, keywordsresearch.
+- `service` — **обязательно**. Путь сервиса строчными буквами, например campaigns, bidmodifiers, sitelinks, adextensions, changes, keywordsresearch.
 - `method` — **обязательно**. Метод API, например get, add, update, delete, set, toggle, checkCampaigns.
 - `params` — **необязательно**. Объект params для метода — как есть.
 - `confirmWrite` — **необязательно**. Должен быть true для запуска метода записи (всё, кроме get/has/check).

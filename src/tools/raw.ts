@@ -21,7 +21,7 @@ export function registerRawTool(server: McpServer, client: YandexDirectClient): 
           .string()
           .min(1)
           .describe(
-            "Путь сервиса строчными буквами, например campaigns, bidmodifiers, sitelinks, vcards, changes, keywordsresearch.",
+            "Путь сервиса строчными буквами, например campaigns, bidmodifiers, sitelinks, adextensions, changes, keywordsresearch.",
           ),
         method: z
           .string()

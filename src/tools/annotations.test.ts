@@ -63,7 +63,7 @@ test("read tools are read-only", () => {
   const readTools = [
     "get_account_info", "get_balance", "get_quota", "list_campaigns", "list_ad_groups", "list_ads",
     "list_keywords", "get_statistics", "get_regions", "get_dictionaries",
-    "get_bid_modifiers", "get_sitelinks", "get_callouts", "get_vcards",
+    "get_bid_modifiers", "get_sitelinks", "get_callouts",
     "get_ad_images", "get_ad_videos", "get_creatives",
     // The login flow: auth_status and start_login read/mint local state only.
     "auth_status", "start_login",
@@ -81,7 +81,7 @@ test("read tools are read-only", () => {
 test("delete, *_action and raw_request are flagged destructive", () => {
   const destructive = [
     "campaign_action", "ad_action", "keyword_action", "delete_ad_groups",
-    "delete_bid_modifiers", "delete_sitelinks", "delete_callouts", "delete_vcards",
+    "delete_bid_modifiers", "delete_sitelinks", "delete_callouts",
     "raw_request",
     // logout deletes the stored credentials file.
     "logout",
@@ -109,7 +109,7 @@ test("update/set tools are idempotent, non-destructive writes", () => {
 test("create/add/upload tools are non-destructive, non-idempotent writes", () => {
   const creates = [
     "create_text_campaign", "create_ad_group", "create_text_ad", "add_keywords",
-    "add_bid_modifier", "create_sitelinks_set", "add_callouts", "create_vcard",
+    "add_bid_modifier", "create_sitelinks_set", "add_callouts",
     "upload_ad_image",
   ];
   for (const name of creates) {
