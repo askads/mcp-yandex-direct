@@ -42,9 +42,21 @@ test("set_keyword_bids converts bids to micros and calls keywordbids/set", async
   assert.equal(calls[0].method, "set");
   assert.deepEqual(calls[0].params.KeywordBids[0], {
     KeywordId: 5,
-    Bid: 1_500_000,
-    ContextBid: 2_000_000,
+    SearchBid: 1_500_000,
+    NetworkBid: 2_000_000,
   });
+});
+
+test("set_keyword_bids sends SearchBid/NetworkBid, never Bid/ContextBid (API code 8000)", async () => {
+  const { calls, tools } = harness(registerKeywordTools);
+  await tools.set_keyword_bids({ bids: [{ adGroupId: 9, bid: 3 }, { adGroupId: 10, contextBid: 4 }] });
+  const [search, network] = calls[0].params.KeywordBids;
+  assert.deepEqual(search, { AdGroupId: 9, SearchBid: 3_000_000 });
+  assert.deepEqual(network, { AdGroupId: 10, NetworkBid: 4_000_000 });
+  for (const item of calls[0].params.KeywordBids) {
+    assert.equal("Bid" in item, false);
+    assert.equal("ContextBid" in item, false);
+  }
 });
 
 test("set_keyword_bids rejects an item with no target id and makes no call", async () => {

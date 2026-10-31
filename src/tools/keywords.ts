@@ -156,8 +156,9 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
             KeywordId: b.keywordId,
             AdGroupId: b.adGroupId,
             CampaignId: b.campaignId,
-            Bid: b.bid !== undefined ? toMicros(b.bid) : undefined,
-            ContextBid: b.contextBid !== undefined ? toMicros(b.contextBid) : undefined,
+            // keywordbids.set names the bids differently from keywords.add (Bid/ContextBid).
+            SearchBid: b.bid !== undefined ? toMicros(b.bid) : undefined,
+            NetworkBid: b.contextBid !== undefined ? toMicros(b.contextBid) : undefined,
           }),
         );
         const result = await client.call("keywordbids", "set", { KeywordBids });
