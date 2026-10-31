@@ -125,7 +125,8 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
       title: "Задать ставки ключевых фраз",
       annotations: WRITE_UPDATE,
       description:
-        "Задаёт ручные ставки на поиске и в сетях для ключевых фраз либо для всех фраз указанных групп объявлений или кампаний (keywordbids/set). Ставки — в валюте аккаунта.",
+        "Задаёт ручные ставки на поиске и в сетях для ключевых фраз либо для всех фраз указанных групп объявлений или кампаний (keywordbids/set). Ставки — в валюте аккаунта. " +
+        "Тип цели один на весь вызов: все элементы bids используют только keywordId, только adGroupId или только campaignId; для целей разных типов нужны отдельные вызовы.",
       inputSchema: {
         bids: z
           .array(
@@ -138,18 +139,29 @@ export function registerKeywordTools(server: McpServer, client: YandexDirectClie
             }),
           )
           .min(1)
-          .describe("В каждом элементе нужен один целевой id и хотя бы одно из полей bid/contextBid."),
+          .describe(
+            "В каждом элементе ровно один целевой id (keywordId, adGroupId или campaignId) и хотя бы одно из полей bid/contextBid. " +
+              "Тип id одинаков во всех элементах: смешивать keywordId, adGroupId и campaignId в одном вызове нельзя.",
+          ),
       },
     },
     async ({ bids }) => {
       try {
+        const targetKinds = new Set<string>();
         for (const b of bids) {
-          if (b.keywordId === undefined && b.adGroupId === undefined && b.campaignId === undefined) {
-            return fail("В каждом элементе нужен keywordId, adGroupId или campaignId.");
+          const ids = (["keywordId", "adGroupId", "campaignId"] as const).filter((k) => b[k] !== undefined);
+          if (ids.length !== 1) {
+            return fail("В каждом элементе bids должен быть ровно один целевой id: keywordId, adGroupId или campaignId.");
           }
           if (b.bid === undefined && b.contextBid === undefined) {
             return fail("В каждом элементе нужен bid и/или contextBid.");
           }
+          targetKinds.add(ids[0]);
+        }
+        if (targetKinds.size > 1) {
+          return fail(
+            "В одном вызове set_keyword_bids нельзя смешивать типы целей: все элементы bids должны использовать только keywordId, только adGroupId или только campaignId.",
+          );
         }
         const KeywordBids = bids.map((b) =>
           compact({
