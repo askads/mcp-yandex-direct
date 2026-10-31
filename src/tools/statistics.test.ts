@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_FIELDS_BY_TYPE, registerStatisticsTools, REPORT_TYPES } from "./statistics.js";
+import { z } from "zod";
+import { DEFAULT_FIELDS_BY_TYPE, registerStatisticsTools, REPORT_FIELDS, REPORT_TYPES } from "./statistics.js";
 import { aggregateReport, truncateTsv } from "./statistics.aggregate.js";
 import { YandexDirectClient } from "../client.js";
 
@@ -459,4 +460,15 @@ test("every poll of one offline report resends the same ReportName", async () =>
   }
   assert.equal(names.length, 3);
   assert.equal(new Set(names).size, 1);
+});
+
+test("fieldNames accepts only Reports field names, defaults included", () => {
+  let schema: Record<string, z.ZodTypeAny> = {};
+  const server = { registerTool: (_n: string, cfg: { inputSchema: Record<string, z.ZodTypeAny> }) => { schema = cfg.inputSchema; } };
+  registerStatisticsTools(server as never, {} as never);
+  const fieldNames = schema.fieldNames;
+  for (const type of REPORT_TYPES) assert.ok(fieldNames.safeParse(DEFAULT_FIELDS_BY_TYPE[type]).success, type);
+  assert.ok(fieldNames.safeParse([...REPORT_FIELDS]).success);
+  assert.ok(!fieldNames.safeParse(["CampaignId", "Conversion"]).success);
+  assert.ok(!fieldNames.safeParse(["Keyword"]).success, "Keyword is a filter field, not a column");
 });
