@@ -1,7 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, isoDate, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, toMicros, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, isoDate, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, stringList, toMicros, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { normalizeStrategyMoney, STRATEGY_READ_FIELDS, strategyToMicros } from "./strategy.js";
 
 // Types accepted by campaigns.get SelectionCriteria.Types. UNIFIED_CAMPAIGN is the
 // "Единая перформанс-кампания" (ЕПК) — the type new performance campaigns are created as.
@@ -61,7 +62,8 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "Список кампаний",
       annotations: READ_ONLY,
       description:
-        "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Денежные поля (DailyBudget.Amount и Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта.",
+        "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Денежные поля (DailyBudget.Amount и Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта. " +
+          "strategy: true добавляет блок TextCampaign/UnifiedCampaign со стратегией (BiddingStrategy), ключевыми целями (PriorityGoals), счётчиками Метрики, моделью атрибуции и пакетной стратегией — деньги в нём тоже в валюте аккаунта, а сам объект BiddingStrategy в этом виде принимает set_campaign_strategy.",
       inputSchema: {
         ids: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         types: z.array(z.enum(CAMPAIGN_TYPES)).optional().describe("Фильтр по типам кампаний."),
@@ -73,7 +75,11 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
         fieldNames: z
           .array(z.enum(CAMPAIGN_FIELDS))
           .optional()
-          .describe("Какие поля кампании вернуть. Стратегии и настройки конкретного типа кампании здесь не запрашиваются."),
+          .describe("Какие поля кампании вернуть. Стратегия здесь не запрашивается — для неё strategy: true."),
+        strategy: z
+          .boolean()
+          .optional()
+          .describe("Вернуть стратегию показа и ключевые цели (блок TextCampaign или UnifiedCampaign)."),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
         autoPaginate: z
@@ -82,7 +88,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           .describe("Забрать все страницы, идя по LimitedBy (limit тогда не ограничивает общий объём)."),
       },
     },
-    async ({ ids, types, states, statuses, fieldNames, limit, offset, autoPaginate }) => {
+    async ({ ids, types, states, statuses, fieldNames, strategy, limit, offset, autoPaginate }) => {
       try {
         const selection = compact({
           Ids: ids?.length ? ids : undefined,
@@ -94,12 +100,17 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           SelectionCriteria: selection,
           FieldNames: fieldNames?.length ? fieldNames : DEFAULT_FIELDS,
         };
+        if (strategy) {
+          // Both blocks may be asked for at once: each campaign answers only its own (checked live).
+          params.TextCampaignFieldNames = STRATEGY_READ_FIELDS;
+          params.UnifiedCampaignFieldNames = STRATEGY_READ_FIELDS;
+        }
         const page = buildPage(limit, offset);
         if (page) params.Page = page;
         const result = autoPaginate
           ? await client.getAll("campaigns", params)
           : await client.call("campaigns", "get", params);
-        return ok(normalizeMoney(result));
+        return ok(normalizeStrategyMoney(normalizeMoney(result)));
       } catch (e) {
         return fail(e);
       }
@@ -131,7 +142,10 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
         biddingStrategy: z
           .record(z.any())
           .optional()
-          .describe("Полный объект BiddingStrategy {Search, Network}. Заменяет значение по умолчанию."),
+          .describe(
+            "Полный объект BiddingStrategy {Search, Network} в формате API, деньги (WeeklySpendLimit, BidCeiling, " +
+              "AverageCpc, AverageCpa, Cpa…) в валюте аккаунта. Заменяет значение по умолчанию.",
+          ),
       },
     },
     async ({ name, startDate, endDate, dailyBudgetAmount, dailyBudgetMode, biddingStrategy }) => {
@@ -147,7 +161,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
             ? { Amount: toMicros(dailyBudgetAmount), Mode: dailyBudgetMode ?? "STANDARD" }
             : undefined,
           TextCampaign: {
-            BiddingStrategy: biddingStrategy ?? DEFAULT_BIDDING_STRATEGY,
+            BiddingStrategy: biddingStrategy ? strategyToMicros(biddingStrategy) : DEFAULT_BIDDING_STRATEGY,
           },
         });
         const result = await client.call("campaigns", "add", { Campaigns: [campaign] });
@@ -210,7 +224,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
         negativeKeywords: z
           .array(z.string())
           .optional()
-          .describe("Заменяет минус-фразы кампании; пустой массив очищает их."),
+          .describe("Заменяет минус-фразы кампании; пустой массив очищает их. Чтобы дописать или убрать отдельные фразы, не затирая список, — update_negative_keywords."),
       },
     },
     async ({ id, name, endDate, dailyBudgetAmount, dailyBudgetMode, negativeKeywords }) => {
@@ -235,7 +249,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           DailyBudget: dailyBudgetAmount
             ? { Amount: toMicros(dailyBudgetAmount), Mode: budgetMode }
             : undefined,
-          NegativeKeywords: negativeKeywords !== undefined ? { Items: negativeKeywords } : undefined,
+          NegativeKeywords: stringList(negativeKeywords),
         });
         if (Object.keys(campaign).length === 1) {
           return fail("Нужно указать хотя бы одно поле для обновления.");

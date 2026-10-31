@@ -12,6 +12,9 @@ import { registerRawTool } from "./raw.js";
 import { registerBidModifierTools } from "./bidModifiers.js";
 import { registerAssetTools } from "./assets.js";
 import { registerMediaTools } from "./media.js";
+import { registerNegativeKeywordTools } from "./negativeKeywords.js";
+import { registerExcludedSiteTools } from "./excludedSites.js";
+import { registerStrategyTools } from "./strategy.js";
 
 interface Annotations {
   readOnlyHint?: boolean;
@@ -42,6 +45,9 @@ function collectAnnotations(): Record<string, Annotations | undefined> {
     registerBidModifierTools,
     registerAssetTools,
     registerMediaTools,
+    registerNegativeKeywordTools,
+    registerExcludedSiteTools,
+    registerStrategyTools,
   ];
   for (const register of registrars) register(server as any, {} as any);
   return annotations;
@@ -83,6 +89,10 @@ test("delete, *_action and raw_request are flagged destructive", () => {
     "campaign_action", "ad_action", "keyword_action", "delete_ad_groups",
     "delete_bid_modifiers", "delete_sitelinks", "delete_callouts",
     "raw_request",
+    // clear/replace/remove can wipe the negative keyword list.
+    "update_negative_keywords",
+    // clear/replace/remove can wipe the excluded placements list.
+    "update_excluded_sites",
     // logout deletes the stored credentials file.
     "logout",
   ];
@@ -94,7 +104,7 @@ test("delete, *_action and raw_request are flagged destructive", () => {
 
 test("update/set tools are idempotent, non-destructive writes", () => {
   const updates = [
-    "update_campaign", "update_ad_group", "update_text_ad",
+    "update_campaign", "update_ad_group", "update_text_ad", "set_campaign_strategy",
     "set_keyword_bids", "set_bid_modifiers",
     // finish_login rewrites the credentials file; redeeming the same code twice is a no-op fail.
     "finish_login",

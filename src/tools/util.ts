@@ -219,6 +219,16 @@ export const NO_SELECTION = (params: string): string =>
   `Нужен хотя бы один фильтр: ${params}. API Яндекс Директа не отдаёт эти объекты по всему аккаунту — ` +
   "сначала получить id кампаний через list_campaigns и передать их в campaignIds (не больше 10 за вызов).";
 
+/**
+ * ArrayOfString value for a nillable list field (NegativeKeywords, ExcludedSites).
+ * The API rejects `{Items: []}` (code 8000, "не менее 1 элемента" — checked live),
+ * so an empty list is sent as `null`, the documented way to clear the field.
+ */
+export function stringList(items: string[] | undefined): { Items: string[] } | null | undefined {
+  if (items === undefined) return undefined;
+  return items.length === 0 ? null : { Items: items };
+}
+
 /** Drops keys whose value is `undefined` so they are not sent to the API. */
 export function compact<T extends Record<string, unknown>>(obj: T): T {
   return Object.fromEntries(

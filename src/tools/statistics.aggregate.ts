@@ -16,7 +16,7 @@
 
 // Revenue/Profit/GoalsRoi are metrics the caller requests explicitly (ROAS = Revenue / Cost).
 // Without them here parseRows would keep them as dimension strings.
-const METRIC_FIELDS = new Set([
+export const METRIC_FIELDS = new Set([
   "Impressions",
   "Clicks",
   "Cost",
@@ -33,7 +33,7 @@ const METRIC_FIELDS = new Set([
 ]);
 
 /** Metrics that are summable across rows (ratios like Ctr/AvgCpc are NOT summed). */
-const SUMMABLE = ["Impressions", "Clicks", "Cost", "Conversions", "Revenue", "Profit"];
+export const SUMMABLE = ["Impressions", "Clicks", "Cost", "Conversions", "Revenue", "Profit"];
 /** Metrics shown in each detail row when present in the report. */
 const DISPLAY_METRICS = [
   "Impressions",
