@@ -40,7 +40,6 @@
 
 - [Добавить уточнения](./add-callouts.md) — `add_callouts`
 - [Создать набор быстрых ссылок](./create-sitelinks-set.md) — `create_sitelinks_set`
-- [Создать визитку](./create-vcard.md) — `create_vcard`
 - [Удалить наборы быстрых ссылок](./delete-sitelinks.md) — `delete_sitelinks`
 
 ## Технические сведения

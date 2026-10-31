@@ -39,7 +39,6 @@
 ## Связанные MCP-инструменты
 
 - [Добавить уточнения](./add-callouts.md) — `add_callouts`
-- [Создать визитку](./create-vcard.md) — `create_vcard`
 - [Удалить уточнения](./delete-callouts.md) — `delete_callouts`
 - [Удалить наборы быстрых ссылок](./delete-sitelinks.md) — `delete_sitelinks`
 
