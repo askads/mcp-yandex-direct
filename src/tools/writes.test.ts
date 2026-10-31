@@ -73,6 +73,39 @@ test("set_keyword_bids rejects an item with no bid", async () => {
   assert.equal(calls.length, 0);
 });
 
+test("set_keyword_bids rejects mixed target types and makes no call", async () => {
+  const { calls, tools } = harness(registerKeywordTools);
+  const res = await tools.set_keyword_bids({ bids: [{ keywordId: 5, bid: 1 }, { adGroupId: 9, bid: 2 }] });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /нельзя смешивать типы целей/);
+  assert.equal(calls.length, 0);
+});
+
+test("set_keyword_bids rejects an item with two target ids and makes no call", async () => {
+  const { calls, tools } = harness(registerKeywordTools);
+  const res = await tools.set_keyword_bids({ bids: [{ keywordId: 5, campaignId: 3, bid: 1 }] });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /ровно один целевой id/);
+  assert.equal(calls.length, 0);
+});
+
+for (const [field, apiField] of [
+  ["keywordId", "KeywordId"],
+  ["adGroupId", "AdGroupId"],
+  ["campaignId", "CampaignId"],
+] as const) {
+  test(`set_keyword_bids accepts a homogeneous ${field} array`, async () => {
+    const { calls, tools } = harness(registerKeywordTools);
+    const res = await tools.set_keyword_bids({ bids: [{ [field]: 1, bid: 1 }, { [field]: 2, contextBid: 2 }] });
+    assert.equal(res.isError, undefined);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(
+      calls[0].params.KeywordBids.map((b: Record<string, unknown>) => b[apiField]),
+      [1, 2],
+    );
+  });
+}
+
 test("update_campaign sends only provided fields and converts the budget", async () => {
   const { calls, tools } = harness(registerCampaignTools);
   const res = await tools.update_campaign({
