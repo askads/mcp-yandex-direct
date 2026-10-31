@@ -30,6 +30,9 @@
 | Инструмент | Что делает |
 | --- | --- |
 | `list_campaigns` / `create_text_campaign` / `update_campaign` / `campaign_action` | Список, создание, обновление (имя, бюджет, **минус-слова**), приостановка/возобновление/архив/удаление. |
+| `update_negative_keywords` | Минус-фразы кампании или группы: `add` / `remove` (читает текущий список и пишет объединённый), `replace`, `clear` (отправляет `null`). Ответ: `before` / `after`, что добавлено или удалено. |
+| `update_excluded_sites` | Запрещённые площадки РСЯ кампании (`ExcludedSites`): `add` / `remove` (читает текущий список и пишет объединённый), `replace`, `clear` (отправляет `null`). Домены, id приложений, названия внешних сетей; до 1000 на кампанию. |
+| `set_campaign_strategy` | Стратегия текстовой кампании или ЕПК: объект `BiddingStrategy` `{Search, Network}` в формате API, деньги в валюте аккаунта. Тип кампании и обёртку (`TextCampaign` / `UnifiedCampaign`) определяет сам; возвращает `previous`. Текущая стратегия — `list_campaigns` с `strategy: true`. |
 | `list_ad_groups` / `create_ad_group` / `update_ad_group` / `delete_ad_groups` | Список, создание, обновление групп (имя, регионы, **минус-слова**), удаление по id. |
 | `list_ads` / `create_text_ad` / `update_text_ad` / `ad_action` | Список, создание, обновление текстовых объявлений; модерация/приостановка/возобновление/архив/удаление. |
 | `list_keywords` / `add_keywords` / `set_keyword_bids` / `keyword_action` | Список, добавление, ручные ставки, приостановка/возобновление/удаление фраз. |
@@ -56,7 +59,7 @@
 
 | Инструмент | Что делает |
 | --- | --- |
-| `get_statistics` | Отчёт через сервис Reports. Обычные типы (CAMPAIGN/ADGROUP/AD/CRITERIA/ACCOUNT) возвращают TSV-строки (сверх ~1 МБ / 100 тыс. строк ответ обрезается с явной пометкой `[_truncated]`); `SEARCH_QUERY_PERFORMANCE_REPORT` — вычисленную сводку (JSON: итоги по всем строкам + топ-N + хвост + счётчики нулевых кликов/конверсий). `CUSTOM_REPORT` — произвольные разрезы; `filters` — любые условия отбора; `goals`/`attributionModels` — конверсии и доход по конкретным целям Метрики. |
+| `get_statistics` | Отчёт через сервис Reports. Обычные типы (CAMPAIGN/ADGROUP/AD/CRITERIA/ACCOUNT) возвращают TSV-строки (сверх ~1 МБ / 100 тыс. строк ответ обрезается с явной пометкой `[_truncated]`); `SEARCH_QUERY_PERFORMANCE_REPORT` — вычисленную сводку (JSON: итоги по всем строкам + топ-N + хвост + счётчики нулевых кликов/конверсий). `CUSTOM_REPORT` — произвольные разрезы; `filters` — любые условия отбора; `goals`/`attributionModels` — конверсии и доход по конкретным целям Метрики. `compareTo: {dateFrom, dateTo}` — сравнение с другим периодом: две задачи Reports, строки сопоставлены по разрезам (по id, а не по названию), `current` / `previous` / `delta` / `deltaPct`, без модели «драйверов». |
 | `raw_request` | Прямой вызов любого сервиса/метода (полное покрытие API). Записи требуют `confirmWrite=true`. |
 
 ## Клиенты агентства и кабинеты в управлении

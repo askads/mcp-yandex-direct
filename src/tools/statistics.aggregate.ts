@@ -14,26 +14,32 @@
  * tokenization breaks on Russian morphology — the model groups queries better).
  */
 
-// Revenue/Profit/GoalsRoi are metrics the caller requests explicitly (ROAS = Revenue / Cost).
-// Without them here parseRows would keep them as dimension strings.
-const METRIC_FIELDS = new Set([
-  "Impressions",
-  "Clicks",
-  "Cost",
-  "Ctr",
-  "AvgCpc",
-  "Conversions",
-  "ConversionRate",
-  "CostPerConversion",
-  "BounceRate",
-  "AvgPageviews",
-  "Revenue",
-  "Profit",
-  "GoalsRoi",
+/**
+ * Every metric column of the Reports service — the numeric fields of REPORT_FIELDS
+ * (statistics.ts); everything else there is a dimension. A metric missing here is
+ * parsed as a dimension string: in a compareTo it would join the row key and split one
+ * row into two. statistics.compare.test.ts pins the split against REPORT_FIELDS.
+ */
+export const METRIC_FIELDS = new Set([
+  "AvgClickPosition", "AvgCpc", "AvgCpm", "AvgEffectiveBid", "AvgImpressionFrequency",
+  "AvgImpressionPosition", "AvgPageviews", "AvgTrafficVolume", "AvgVideoCompleteCost",
+  "BounceRate", "Bounces", "Clicks", "ConversionRate", "Conversions", "Cost", "CostPerConversion",
+  "CPV", "Ctr", "GoalsRoi", "ImpressionReach", "Impressions", "Profit", "PurchaseGoalsRoi",
+  "PurchaseProfit", "PurchaseRevenue", "Revenue", "Sessions", "VideoComplete", "VideoCompleteRate",
+  "VideoFirstQuartile", "VideoFirstQuartileRate", "VideoMidpoint", "VideoMidpointRate",
+  "VideoThirdQuartile", "VideoThirdQuartileRate", "VideoViews", "VideoViewsRate", "WeightedCtr",
+  "WeightedImpressions",
 ]);
 
-/** Metrics that are summable across rows (ratios like Ctr/AvgCpc are NOT summed). */
-const SUMMABLE = ["Impressions", "Clicks", "Cost", "Conversions", "Revenue", "Profit"];
+/**
+ * Counts that add up across rows. Ratios, averages and ImpressionReach (unique users —
+ * overlaps between rows) are NOT summed.
+ */
+export const SUMMABLE = [
+  "Impressions", "Clicks", "Cost", "Conversions", "Revenue", "Profit", "Bounces", "Sessions",
+  "PurchaseRevenue", "PurchaseProfit", "VideoViews", "VideoFirstQuartile", "VideoMidpoint",
+  "VideoThirdQuartile", "VideoComplete", "WeightedImpressions",
+];
 /** Metrics shown in each detail row when present in the report. */
 const DISPLAY_METRICS = [
   "Impressions",

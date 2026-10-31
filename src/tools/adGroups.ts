@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, stringList, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
 
 // adgroups.get FieldNames (checked live 2026-10-30).
 const AD_GROUP_FIELDS = [
@@ -97,7 +97,7 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
         negativeKeywords: z
           .array(z.string())
           .optional()
-          .describe("Заменяет минус-фразы группы; пустой массив очищает их."),
+          .describe("Заменяет минус-фразы группы; пустой массив очищает их. Чтобы дописать или убрать отдельные фразы, не затирая список, — update_negative_keywords."),
       },
     },
     async ({ id, name, regionIds, negativeKeywords }) => {
@@ -106,7 +106,7 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
           Id: id,
           Name: name,
           RegionIds: regionIds,
-          NegativeKeywords: negativeKeywords !== undefined ? { Items: negativeKeywords } : undefined,
+          NegativeKeywords: stringList(negativeKeywords),
         });
         if (Object.keys(adGroup).length === 1) {
           return fail("Нужно указать хотя бы одно поле для обновления.");

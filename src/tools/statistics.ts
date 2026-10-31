@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
 import { fail, isoDate, ok, READ_ONLY, reportName, toMicros } from "./util.js";
 import { aggregateReport, countDataRows, MAX_TOP_N, truncateTsv } from "./statistics.aggregate.js";
+import { compareReports, TIME_FIELDS } from "./statistics.compare.js";
 
 export const REPORT_TYPES = [
   "ACCOUNT_PERFORMANCE_REPORT",
@@ -123,7 +124,8 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
       title: "Статистика",
       annotations: READ_ONLY,
       description:
-        "Запрашивает отчёт по эффективности через сервис Reports Яндекс Директа. По умолчанию отчёт АГРЕГИРОВАН за весь период (одна строка на объект) — добавлять \"Date\" в fieldNames только для динамики по дням или вопросов о трендах. Почасовой статистики в Reports нет: минимум — сутки, внутридневную динамику дают только повторные снимки TODAY. Готового ROAS нет — считать Revenue / Cost; GoalsRoi — это ROI ((Revenue − Cost) / Cost), не ROAS. Revenue, Profit, GoalsRoi и конверсии заполняются только по целям Метрики с ценностью. ALL_TIME без фильтра по кампаниям отклоняется для отчётов SEARCH_QUERY/CRITERIA: нужно передать campaignIds или ограниченный период. SEARCH_QUERY_PERFORMANCE_REPORT возвращает не сырые строки, а ВЫЧИСЛЕННУЮ СВОДКУ (итоги по ВСЕМ строкам + детализация top-N + свёртка хвоста + количество строк без кликов и без конверсий); её форму задают sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, а для подсчётов по конверсиям нужно добавить Conversions в fieldNames. Остальные типы отчётов возвращают строки, разделённые табуляцией (без заголовка).",
+        "Запрашивает отчёт по эффективности через сервис Reports Яндекс Директа. По умолчанию отчёт АГРЕГИРОВАН за весь период (одна строка на объект) — добавлять \"Date\" в fieldNames только для динамики по дням или вопросов о трендах. Почасовой статистики в Reports нет: минимум — сутки, внутридневную динамику дают только повторные снимки TODAY. Готового ROAS нет — считать Revenue / Cost; GoalsRoi — это ROI ((Revenue − Cost) / Cost), не ROAS. Revenue, Profit, GoalsRoi и конверсии заполняются только по целям Метрики с ценностью. ALL_TIME без фильтра по кампаниям отклоняется для отчётов SEARCH_QUERY/CRITERIA: нужно передать campaignIds или ограниченный период. SEARCH_QUERY_PERFORMANCE_REPORT возвращает не сырые строки, а ВЫЧИСЛЕННУЮ СВОДКУ (итоги по ВСЕМ строкам + детализация top-N + свёртка хвоста + количество строк без кликов и без конверсий); её форму задают sortBy/topN/minCost/queryContains/zeroClicksOnly/zeroConversionsOnly, а для подсчётов по конверсиям нужно добавить Conversions в fieldNames. Остальные типы отчётов возвращают строки, разделённые табуляцией (без заголовка). " +
+          "compareTo — сравнение двух периодов: инструмент запускает ДВЕ задачи Reports (текущий период dateFrom/dateTo и compareTo) и возвращает JSON, где строки сопоставлены по разрезам отчёта (matchKey; название кампании или группы не учитывается, если запрошен её id — переименование не ломает сопоставление), с current, previous, delta и deltaPct по каждой метрике. Это только значения Яндекса и их разность: вклад факторов (расход = показы × CTR × CPC) инструмент не считает — при объяснении изменений считать по колонкам ответа и называть порядок факторов. Последние ~3 дня статистики Яндекс может пересчитать.",
       inputSchema: {
         reportType: z.enum(REPORT_TYPES).optional().describe("Тип отчёта. По умолчанию CAMPAIGN_PERFORMANCE_REPORT."),
         dateRangeType: z
@@ -162,7 +164,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           .describe(
             "Id целей Яндекс Метрики (не более 10). Без них Conversions и Revenue считаются по всем целям " +
               "кампании; с ними колонки приходят как <поле>_<idЦели>_<модель> (по одной на цель × модель). " +
-              "Для SEARCH_QUERY_PERFORMANCE_REPORT — только одна цель и одна модель.",
+              "Для SEARCH_QUERY_PERFORMANCE_REPORT и compareTo сводка разбирает только одну цель и одну модель (ограничение инструмента, не API).",
           ),
         attributionModels: z
           .array(z.enum(ATTRIBUTION_MODELS))
@@ -172,6 +174,17 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
             "Модели атрибуции для конверсий по целям из goals; без goals не применяются (API их тогда не принимает). По умолчанию LC (последний переход).",
           ),
         includeVat: z.boolean().optional().describe("Включать ли НДС в расход. По умолчанию true."),
+        compareTo: z
+          .object({
+            dateFrom: isoDate().describe("Начало периода для сравнения, YYYY-MM-DD."),
+            dateTo: isoDate().describe("Конец периода для сравнения, YYYY-MM-DD."),
+          })
+          .optional()
+          .describe(
+            "Период, с которым сравнить текущий (dateFrom/dateTo, обязательны). Лучше той же длины. " +
+              "Не для SEARCH_QUERY_PERFORMANCE_REPORT и не с Date/Week/Month/Quarter/Year в fieldNames. " +
+              "sortBy задаёт сортировку по |delta|, topN — сколько строк показать.",
+          ),
         // Aggregation controls — apply to SEARCH_QUERY_PERFORMANCE_REPORT (computed summary).
         sortBy: z
           .enum(["Cost", "Clicks", "Impressions", "Conversions", "Ctr", "AvgCpc"])
@@ -208,6 +221,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
       goals,
       attributionModels,
       includeVat,
+      compareTo,
       sortBy,
       order,
       topN,
@@ -260,6 +274,19 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           );
         }
 
+        if (compareTo) {
+          const problem = !(dateFrom && dateTo)
+            ? "Для compareTo нужен и текущий период явными датами — dateFrom и dateTo: границы пресетов вычисляет Яндекс, и сравнение было бы непроверяемым."
+            : type === "SEARCH_QUERY_PERFORMANCE_REPORT"
+              ? "compareTo не работает с SEARCH_QUERY_PERFORMANCE_REPORT (у него своя сводка) — сравнивать по CAMPAIGN/ADGROUP/CRITERIA или CUSTOM_REPORT."
+              : (fieldNames ?? []).some((f) => TIME_FIELDS.includes(f))
+                ? "compareTo не сочетается с Date/Week/Month/Quarter/Year в fieldNames: периоды и так разделены. Для динамики по дням — один отчёт с Date."
+                : goalColumns > 1
+                  ? "compareTo поддерживает одну цель и одну модель атрибуции в goals."
+                  : undefined;
+          if (problem) return fail(problem);
+        }
+
         const selection: Record<string, unknown> = {};
         if (range === "CUSTOM_DATE") {
           if (!dateFrom || !dateTo) {
@@ -296,6 +323,26 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           // The API accepts AttributionModels only next to Goals (code 4000 otherwise).
           ...(goals?.length && attributionModels?.length ? { AttributionModels: attributionModels } : {}),
         };
+
+        if (compareTo) {
+          // Two Reports tasks, one after the other (client.report keeps the pace between them).
+          const currentTsv = await client.report(params);
+          const previousTsv = await client.report({
+            ...params,
+            SelectionCriteria: { ...selection, DateFrom: compareTo.dateFrom, DateTo: compareTo.dateTo },
+            ReportName: reportName(`mcp-${type}-compare`),
+          });
+          return ok(
+            compareReports(
+              currentTsv,
+              previousTsv,
+              params.FieldNames,
+              { dateFrom: dateFrom!, dateTo: dateTo! },
+              compareTo,
+              { sortBy, topN },
+            ),
+          );
+        }
 
         const tsv = await client.report(params);
         // L2: SEARCH_QUERY is high-cardinality → return a computed summary (totals over

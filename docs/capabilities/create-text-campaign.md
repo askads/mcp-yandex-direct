@@ -21,7 +21,7 @@
 - `endDate` — **необязательно**. Дата окончания в формате YYYY-MM-DD.
 - `dailyBudgetAmount` — **необязательно**. Дневной бюджет в валюте аккаунта (конвертируется в микроединицы).
 - `dailyBudgetMode` — **необязательно**. Режим траты дневного бюджета: STANDARD — показы как можно быстрее, DISTRIBUTED — равномерно в течение дня. По умолчанию STANDARD.
-- `biddingStrategy` — **необязательно**. Полный объект BiddingStrategy {Search, Network}. Заменяет значение по умолчанию.
+- `biddingStrategy` — **необязательно**. Полный объект BiddingStrategy {Search, Network} в формате API, деньги (WeeklySpendLimit, BidCeiling, AverageCpc, AverageCpa, Cpa…) в валюте аккаунта. Заменяет значение по умолчанию.
 
 ## Что вернёт
 

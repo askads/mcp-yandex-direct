@@ -178,6 +178,66 @@ test("list_campaigns sends only provided filters and normalizes money on output"
   assert.match(res.content[0].text, /"Amount":1000/);
 });
 
+test("create_text_campaign converts money inside an explicit biddingStrategy", async () => {
+  const { calls, tools } = harness(registerCampaignTools, { callResult: { AddResults: [{ Id: 1 }] } });
+  await tools.create_text_campaign({
+    name: "C",
+    startDate: "2026-01-01",
+    biddingStrategy: {
+      Search: { BiddingStrategyType: "WB_MAXIMUM_CLICKS", WbMaximumClicks: { WeeklySpendLimit: 3000, BidCeiling: 25 } },
+      Network: { BiddingStrategyType: "SERVING_OFF" },
+    },
+  });
+  assert.deepEqual(calls[0].params.Campaigns[0].TextCampaign.BiddingStrategy.Search.WbMaximumClicks, {
+    WeeklySpendLimit: 3_000_000_000,
+    BidCeiling: 25_000_000,
+  });
+});
+
+test("list_campaigns strategy: true asks both type blocks and converts strategy money", async () => {
+  const { calls, tools } = harness(registerCampaignTools, {
+    callResult: {
+      Campaigns: [
+        {
+          Id: 1,
+          UnifiedCampaign: {
+            BiddingStrategy: {
+              Search: {
+                BiddingStrategyType: "AVERAGE_CPA_MULTIPLE_GOALS",
+                AverageCpaMultipleGoals: {
+                  WeeklySpendLimit: 3_000_000_000,
+                  BidCeiling: null,
+                  ExplorationBudget: { MinimumExplorationBudget: 1_750_000_000, IsMinimumExplorationBudgetCustom: "NO" },
+                  BudgetIncreasePercent: 20,
+                },
+              },
+              Network: { BiddingStrategyType: "SERVING_OFF" },
+            },
+            PriorityGoals: { Items: [{ GoalId: 5, Value: 5_000_000 }] },
+          },
+        },
+      ],
+    },
+  });
+  const res = await tools.list_campaigns({ ids: [1], strategy: true });
+  assert.ok(calls[0].params.TextCampaignFieldNames.includes("BiddingStrategy"));
+  assert.ok(calls[0].params.UnifiedCampaignFieldNames.includes("PriorityGoals"));
+  const out = JSON.parse(res.content[0].text).Campaigns[0].UnifiedCampaign;
+  const params = out.BiddingStrategy.Search.AverageCpaMultipleGoals;
+  assert.equal(params.WeeklySpendLimit, 3000);
+  assert.equal(params.BidCeiling, null);
+  assert.equal(params.ExplorationBudget.MinimumExplorationBudget, 1750);
+  assert.equal(params.BudgetIncreasePercent, 20, "percent stays a percent");
+  assert.equal(out.PriorityGoals.Items[0].Value, 5);
+  assert.equal(out.PriorityGoals.Items[0].GoalId, 5, "ids are not money");
+});
+
+test("list_campaigns without strategy asks no type blocks", async () => {
+  const { calls, tools } = harness(registerCampaignTools, { callResult: { Campaigns: [] } });
+  await tools.list_campaigns({});
+  assert.equal("UnifiedCampaignFieldNames" in calls[0].params, false);
+});
+
 test("list_campaigns autoPaginate routes through getAll", async () => {
   const { calls, tools } = harness(registerCampaignTools, { callResult: { Campaigns: [] } });
   await tools.list_campaigns({ autoPaginate: true });

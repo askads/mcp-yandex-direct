@@ -32,6 +32,9 @@ import { registerBidModifierTools } from "./tools/bidModifiers.js";
 import { registerAssetTools } from "./tools/assets.js";
 import { registerMediaTools } from "./tools/media.js";
 import { registerClientTools } from "./tools/clients.js";
+import { registerNegativeKeywordTools } from "./tools/negativeKeywords.js";
+import { registerExcludedSiteTools } from "./tools/excludedSites.js";
+import { registerStrategyTools } from "./tools/strategy.js";
 
 /**
  * The prose the calling model receives in the `initialize` result — the only text it
@@ -148,6 +151,9 @@ async function main(): Promise<void> {
   registerAdGroupTools(server, client);
   registerAdTools(server, client);
   registerKeywordTools(server, client);
+  registerNegativeKeywordTools(server, client);
+  registerExcludedSiteTools(server, client);
+  registerStrategyTools(server, client);
   registerStatisticsTools(server, client);
   registerDictionaryTools(server, client);
   registerRawTool(server, client);

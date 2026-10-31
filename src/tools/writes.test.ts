@@ -181,11 +181,20 @@ test("update_campaign sets negative keywords as NegativeKeywords.Items", async (
   });
 });
 
-test("update_ad_group clears negative keywords with an empty array", async () => {
+// The API rejects {Items: []} with code 8000 ("не менее 1 элемента", checked live);
+// null is the documented way to clear a nillable list.
+test("update_ad_group clears negative keywords with null, never an empty Items", async () => {
   const { calls, tools } = harness(registerAdGroupTools);
   const res = await tools.update_ad_group({ id: 9, negativeKeywords: [] });
   assert.equal(res.isError, undefined);
-  assert.deepEqual(calls[0].params.AdGroups[0], { Id: 9, NegativeKeywords: { Items: [] } });
+  assert.deepEqual(calls[0].params.AdGroups[0], { Id: 9, NegativeKeywords: null });
+});
+
+test("update_campaign clears negative keywords with null, never an empty Items", async () => {
+  const { calls, tools } = harness(registerCampaignTools);
+  const res = await tools.update_campaign({ id: 7, negativeKeywords: [] });
+  assert.equal(res.isError, undefined);
+  assert.deepEqual(calls[0].params.Campaigns[0], { Id: 7, NegativeKeywords: null });
 });
 
 test("create_text_ad always sends the required Mobile flag", async () => {
