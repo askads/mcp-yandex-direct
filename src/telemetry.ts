@@ -175,6 +175,18 @@ const OUTCOME_PATTERNS: ReadonlyArray<readonly [ToolOutcome, RegExp]> = [
   ["error_invalid_request", /\b400\b|\b422\b|bad request|invalid|syntax|некоррект|неверн|недопустим|required|обязател|expected|must (?:be|contain|have)|\[(?:4000|4001|4003|5000|8000)\]/i],
 ];
 
+// An API code at the head of the message wins over the text, which may quote field names
+// ("ForbiddenPlatform" in a [8000] list of allowed values). 53 is absent: the text tells a
+// dead token from no access to a client.
+const CODE_OUTCOMES = new Map<string, ToolOutcome>([
+  ...["56", "152", "506", "9000"].map((c) => [c, "error_rate_limit"] as const),
+  ...["54", "3228"].map((c) => [c, "error_permission"] as const),
+  ["8800", "error_not_found"],
+  ...["52", "1000", "1001", "1002"].map((c) => [c, "error_upstream"] as const),
+  ...["4000", "4001", "4003", "5000", "8000"].map((c) => [c, "error_invalid_request"] as const),
+]);
+const LEADING_CODE = /^[^[\n]{0,60}\[(\d{1,5})\]/;
+
 // Inputs are cut before any regex runs: a long argument echoed in an error must not stall the call.
 const TEXT_MAX = 4000;
 
@@ -193,6 +205,8 @@ export function toolOutcome(result: unknown, ...thrown: [unknown?]): ToolOutcome
   const didThrow = thrown.length > 0;
   if (!didThrow && !(result as { isError?: unknown } | null)?.isError) return "ok";
   const text = resultText(didThrow ? thrown[0] : result);
+  const byCode = CODE_OUTCOMES.get(LEADING_CODE.exec(text)?.[1] ?? "");
+  if (byCode) return byCode;
   for (const [outcome, pattern] of OUTCOME_PATTERNS) if (pattern.test(text)) return outcome;
   return didThrow ? "error_internal" : "error_other";
 }
