@@ -18,6 +18,26 @@ export const REPORT_TYPES = [
 
 type ReportType = (typeof REPORT_TYPES)[number];
 
+/**
+ * Every value the Reports API accepts in FieldNames (checked live 2026-10-31: all of them pass the
+ * enum check). Which ones fit a given report type is still up to the API.
+ */
+export const REPORT_FIELDS = [
+  "AdFormat", "AdGroupId", "AdGroupName", "AdId", "AdNetworkType", "Age", "AvgClickPosition", "AvgCpc",
+  "AvgCpm", "AvgEffectiveBid", "AvgImpressionFrequency", "AvgImpressionPosition", "AvgPageviews",
+  "AvgTrafficVolume", "AvgVideoCompleteCost", "BounceRate", "Bounces", "CampaignId", "CampaignName",
+  "CampaignUrlPath", "CampaignType", "CarrierType", "Clicks", "ClickType", "ClientLogin", "ConversionRate",
+  "Conversions", "Cost", "CostPerConversion", "CPV", "Criteria", "CriteriaId", "CriteriaType", "Criterion",
+  "CriterionId", "CriterionType", "Ctr", "Date", "Device", "ExternalNetworkName", "Gender", "GoalsRoi",
+  "ImpressionReach", "Impressions", "IncomeGrade", "LocationOfPresenceId", "LocationOfPresenceName",
+  "MatchedKeyword", "MatchType", "MobilePlatform", "Month", "Placement", "Profit", "PurchaseRevenue",
+  "PurchaseProfit", "PurchaseGoalsRoi", "Quarter", "Query", "Revenue", "RlAdjustmentId", "Sessions", "Slot",
+  "TargetingCategory", "TargetingLocationId", "TargetingLocationName", "VideoComplete", "VideoCompleteRate",
+  "VideoFirstQuartile", "VideoFirstQuartileRate", "VideoMidpoint", "VideoMidpointRate", "VideoThirdQuartile",
+  "VideoThirdQuartileRate", "VideoViews", "VideoViewsRate", "Week", "WeightedCtr", "WeightedImpressions",
+  "Year",
+] as const;
+
 /** Full documented DateRangeType list (AUTO = the period Yandex may still restate). */
 const DATE_RANGES = [
   "TODAY",
@@ -113,7 +133,7 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         dateFrom: isoDate().optional().describe("Дата начала YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
         dateTo: isoDate().optional().describe("Дата окончания YYYY-MM-DD (обязательна для CUSTOM_DATE)."),
         fieldNames: z
-          .array(z.string())
+          .array(z.enum(REPORT_FIELDS))
           .optional()
           .describe(
             "Колонки отчёта (должны быть допустимы для его типа). Сверх базовых метрик: Conversions, " +
