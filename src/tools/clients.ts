@@ -4,7 +4,7 @@ import type { YandexDirectClient } from "../client.js";
 import { withClientLogin } from "../clientLogin.js";
 import { currentOperation, throwIfCancelled } from "../operation.js";
 import { YandexDirectError } from "../types.js";
-import { fail, MAX_TOOL_LIMIT, ok, READ_ONLY } from "./util.js";
+import { fail, MAX_TOOL_LIMIT, ok, READ_ONLY, reportName } from "./util.js";
 
 /** An agency token's request without Client-Login: "specify the client". */
 export const AGENCY_NEEDS_CLIENT_CODE = 8000;
@@ -167,7 +167,7 @@ async function fetchClientStats(client: YandexDirectClient, login: string, perio
     client.report({
       SelectionCriteria: {},
       FieldNames: ["Impressions", "Clicks", "Cost"],
-      ReportName: `mcp-overview-${login}-${period}-${Date.now()}`,
+      ReportName: reportName(`mcp-overview-${login}-${period}`),
       ReportType: "ACCOUNT_PERFORMANCE_REPORT",
       DateRangeType: period,
       Format: "TSV",
