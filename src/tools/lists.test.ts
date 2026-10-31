@@ -82,3 +82,11 @@ test("list_ads: default fields send no TextAdFieldNames", async () => {
   await tools.list_ads.handler({ campaignIds: [1] });
   assert.equal("TextAdFieldNames" in calls[0].params, false);
 });
+
+test("list_ads: TextAd fields the API rejects on use are not in the enum", () => {
+  // Listed in the API's code-8000 enumeration, but ads.get answers 4000/5006 for them.
+  const { schema } = harness(registerAdTools).tools.list_ads;
+  for (const field of ["TrackingParams", "LfHref", "LfButtonText", "Carousel"]) {
+    assert.equal(schema.safeParse({ campaignIds: [1], fieldNames: [field] }).success, false, field);
+  }
+});

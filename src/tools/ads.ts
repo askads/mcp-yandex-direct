@@ -13,11 +13,13 @@ const AD_FIELDS = [
 ] as const;
 // TextAdFieldNames: the ad's texts and links live here, not in FieldNames. Accepted in the
 // same fieldNames array and routed to TextAdFieldNames — "Title"/"Text" in FieldNames was
-// the usual way to draw code 8000.
+// the usual way to draw code 8000. Checked live one by one (2026-10-31): the API's code-8000
+// enumeration also lists TrackingParams and Carousel (code 4000 "unknown field") and
+// LfHref/LfButtonText (code 5006), so they are left out.
 const TEXT_AD_FIELDS = [
   "Title", "Title2", "Text", "Href", "FinalUrl", "DisplayDomain", "DisplayUrlPath", "Mobile",
   "SitelinkSetId", "VCardId", "AdImageHash", "AdExtensions", "TurboPageId", "BusinessId",
-  "TrackingParams", "LfHref", "LfButtonText", "ErirAdDescription",
+  "ErirAdDescription",
 ] as const;
 const TEXT_AD_FIELD_SET: ReadonlySet<string> = new Set(TEXT_AD_FIELDS);
 
