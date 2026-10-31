@@ -47,8 +47,8 @@
 
 | Инструмент | Что делает |
 | --- | --- |
-| `get_sitelinks` / `create_sitelinks_set` / `delete_sitelinks` | Наборы быстрых ссылок. |
-| `get_callouts` / `add_callouts` / `delete_callouts` | Уточнения. |
+| `get_sitelinks` / `create_sitelinks_set` / `delete_sitelinks` | Наборы быстрых ссылок. В наборе 1–8 ссылок: текст до 30 символов, описание до 60, URL до 1024. |
+| `get_callouts` / `add_callouts` / `delete_callouts` | Уточнения: до 25 символов, не более 1000 за вызов. |
 | `get_ad_images` / `get_ad_videos` / `get_creatives` | Чтение библиотек изображений / видео / креативов. |
 | `upload_ad_image` | Загрузка изображения (по URL или base64) в библиотеку, возвращает `AdImageHash` для объявления. |
 
