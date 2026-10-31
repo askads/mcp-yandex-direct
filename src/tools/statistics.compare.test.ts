@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { compareReports } from "./statistics.compare.js";
-import { registerStatisticsTools } from "./statistics.js";
+import { registerStatisticsTools, REPORT_FIELDS } from "./statistics.js";
+import { METRIC_FIELDS } from "./statistics.aggregate.js";
 
 const FIELDS = ["CampaignId", "CampaignName", "Impressions", "Clicks", "Cost", "Ctr"];
 const HEADER = FIELDS.join("\t");
@@ -113,4 +114,43 @@ test("compareTo refusals cost no report", async () => {
     assert.equal(res.isError, true, JSON.stringify(args));
     assert.equal(calls.length, 0, JSON.stringify(args));
   }
+});
+
+// --- review findings (Codex, PR #36) ---
+
+
+/** Non-metric Reports fields: grouping dimensions and attributes. */
+const DIMENSIONS = [
+  "AdFormat", "AdGroupId", "AdGroupName", "AdId", "AdNetworkType", "Age", "CampaignId", "CampaignName",
+  "CampaignUrlPath", "CampaignType", "CarrierType", "ClickType", "ClientLogin", "Criteria", "CriteriaId",
+  "CriteriaType", "Criterion", "CriterionId", "CriterionType", "Date", "Device", "ExternalNetworkName", "Gender",
+  "IncomeGrade", "LocationOfPresenceId", "LocationOfPresenceName", "MatchedKeyword", "MatchType", "MobilePlatform",
+  "Month", "Placement", "Quarter", "Query", "RlAdjustmentId", "Slot", "TargetingCategory", "TargetingLocationId",
+  "TargetingLocationName", "Week", "Year",
+];
+
+test("every Reports field is classified: metric or dimension, never both, never neither", () => {
+  for (const f of REPORT_FIELDS) {
+    const isMetric = METRIC_FIELDS.has(f);
+    const isDim = DIMENSIONS.includes(f);
+    assert.ok(isMetric !== isDim, `${f}: metric=${isMetric} dimension=${isDim}`);
+  }
+});
+
+test("a metric outside the old short list (AvgCpm) is compared, not used as a key", () => {
+  const fields = ["Device", "AvgCpm", "Impressions"];
+  const h = fields.join("\t");
+  const out = compareReports(`${h}\nDESKTOP\t100\t10`, `${h}\nDESKTOP\t80\t8`, fields, OCT, SEP);
+  assert.deepEqual(out.matchKey, ["Device"]);
+  assert.equal(out.rows.length, 1);
+  assert.equal(out.rows[0].delta.AvgCpm, 20);
+});
+
+test("a renamed campaign does not split its ad groups when AdGroupId is requested", () => {
+  const fields = ["CampaignName", "AdGroupId", "AdGroupName", "Clicks"];
+  const h = fields.join("\t");
+  const out = compareReports(`${h}\nNew\t42\tG\t10`, `${h}\nOld\t42\tG\t4`, fields, OCT, SEP);
+  assert.deepEqual(out.matchKey, ["AdGroupId"]);
+  assert.equal(out.counts.matched, 1);
+  assert.equal(out.rows[0].CampaignName, "New");
 });

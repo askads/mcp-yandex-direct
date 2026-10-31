@@ -71,10 +71,16 @@ export function compareReports(
 ) {
   const metrics = fieldNames.filter((f) => METRIC_FIELDS.has(f));
   const dims = fieldNames.filter((f) => !METRIC_FIELDS.has(f));
-  // Every dimension is part of the key (CampaignId + AdNetworkType are two rows), except a
-  // name whose id is also requested: ids survive a rename, names do not.
+  // Every dimension is part of the key (CampaignId + AdNetworkType are two rows), except an
+  // object name when an id that identifies that object is also requested: ids survive a
+  // rename, names do not. AdGroupId / AdId are account-unique, so they pin their campaign
+  // (and group) too — a renamed campaign must not split the rows of its groups.
+  const has = (...ids: string[]) => ids.some((id) => dims.includes(id));
   const nameOfId = (d: string) =>
-    (d.endsWith("Name") && dims.includes(d.replace(/Name$/, "Id"))) || (d === "Criterion" && dims.includes("CriterionId"));
+    (d === "CampaignName" && has("CampaignId", "AdGroupId", "AdId")) ||
+    (d === "AdGroupName" && has("AdGroupId", "AdId")) ||
+    (d === "Criterion" && has("CriterionId")) ||
+    (d === "Criteria" && has("CriteriaId"));
   const matchKey = dims.filter((d) => !nameOfId(d));
   const keyOf = (d: Record<string, string>) => matchKey.map((k) => d[k] ?? "").join("\u0001");
 
