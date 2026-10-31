@@ -5,13 +5,13 @@ import { registerBidModifierTools } from "./bidModifiers.js";
 type Args = Record<string, unknown>;
 type Handler = (args: Args) => Promise<{ content: { text: string }[]; isError?: boolean }>;
 
-function harness() {
+function harness(response: unknown = { BidModifiers: [] }) {
   const calls: { service: string; method: string; params: any }[] = [];
   const tools: Record<string, Handler> = {};
   const client = {
     call: async (service: string, method: string, params: any) => {
       calls.push({ service, method, params });
-      return { BidModifiers: [] };
+      return structuredClone(response);
     },
   };
   const server = {
@@ -56,24 +56,58 @@ test("add_bid_modifier maps a mobile adjustment", async () => {
   const res = await tools.add_bid_modifier({ campaignId: 7, mobile: { percent: 120, os: "IOS" } });
   assert.equal(res.isError, undefined);
   assert.equal(calls[0].method, "add");
-  assert.deepEqual(calls[0].params.BidModifiers[0], {
-    CampaignId: 7,
-    MobileAdjustment: { BidModifier: 120, OperatingSystemType: "IOS" },
-  });
+  assert.deepEqual(calls[0].params.BidModifiers, [
+    { CampaignId: 7, MobileAdjustment: { BidModifier: 120, OperatingSystemType: "IOS" } },
+  ]);
 });
 
-test("add_bid_modifier maps demographics/retargeting/regional arrays", async () => {
+test("add_bid_modifier sends one element per adjustment type in a single call", async () => {
+  // BidModifierAddItem takes exactly one adjustment type; several in one element fail with
+  // "Передано больше чем одно поле".
   const { calls, tools } = harness();
   await tools.add_bid_modifier({
     adGroupId: 9,
-    demographics: [{ gender: "GENDER_MALE", percent: 80 }],
+    mobile: { percent: 50 },
+    demographics: [
+      { gender: "GENDER_MALE", percent: 80 },
+      { age: "AGE_55", percent: 120 },
+    ],
     retargeting: [{ retargetingConditionId: 100, percent: 150 }],
     regional: [{ regionId: 225, percent: 110 }],
   });
-  const item = calls[0].params.BidModifiers[0];
-  assert.deepEqual(item.DemographicsAdjustments, [{ Gender: "GENDER_MALE", BidModifier: 80 }]);
-  assert.deepEqual(item.RetargetingAdjustments, [{ RetargetingConditionId: 100, BidModifier: 150 }]);
-  assert.deepEqual(item.RegionalAdjustments, [{ RegionId: 225, BidModifier: 110 }]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].params.BidModifiers, [
+    { AdGroupId: 9, MobileAdjustment: { BidModifier: 50 } },
+    {
+      AdGroupId: 9,
+      DemographicsAdjustments: [
+        { Gender: "GENDER_MALE", BidModifier: 80 },
+        { Age: "AGE_55", BidModifier: 120 },
+      ],
+    },
+    { AdGroupId: 9, RetargetingAdjustments: [{ RetargetingConditionId: 100, BidModifier: 150 }] },
+    { AdGroupId: 9, RegionalAdjustments: [{ RegionId: 225, BidModifier: 110 }] },
+  ]);
+});
+
+test("add_bid_modifier tags each AddResults entry with its type and surfaces a partial failure", async () => {
+  const { tools } = harness({
+    AddResults: [
+      { Ids: [11] },
+      { Errors: [{ Code: 8800, Message: "Объект не найден" }] },
+    ],
+  });
+  const res = await tools.add_bid_modifier({
+    campaignId: 7,
+    desktop: { percent: 90 },
+    regional: [{ regionId: 1, percent: 130 }],
+  });
+  assert.equal(res.isError, true);
+  const body = JSON.parse(res.content[0].text.slice(res.content[0].text.indexOf("{")));
+  assert.deepEqual(body.AddResults, [
+    { Type: "DESKTOP_ADJUSTMENT", Ids: [11] },
+    { Type: "REGIONAL_ADJUSTMENT", Errors: [{ Code: 8800, Message: "Объект не найден" }] },
+  ]);
 });
 
 test("add_bid_modifier rejects zero or both targets", async () => {

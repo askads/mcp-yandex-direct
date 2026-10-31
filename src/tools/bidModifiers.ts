@@ -78,7 +78,13 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
       title: "Добавить корректировку ставок",
       annotations: WRITE_CREATE,
       description:
-        "Добавляет корректировку ставок на кампанию или группу объявлений. Значения BidModifier — проценты по правилам API (например, 0–1300), а не деньги.",
+        "Добавляет корректировку ставок на кампанию или группу объявлений. Значения BidModifier — проценты по правилам API (например, 0–1300), а не деньги. " +
+        "API принимает в одном элементе BidModifiers только один тип корректировки, поэтому каждый переданный тип " +
+        "(mobile, desktop, demographics, retargeting, regional) уходит отдельным элементом в одном вызове bidmodifiers/add, " +
+        "в этом порядке. Каждая запись AddResults помечена полем Type (MOBILE_ADJUSTMENT, DESKTOP_ADJUSTMENT, " +
+        "DEMOGRAPHICS_ADJUSTMENT, RETARGETING_ADJUSTMENT, REGIONAL_ADJUSTMENT): типы создаются независимо, при частичной " +
+        "ошибке повторять только типы с Errors. Внутри одного типа (массивы demographics/retargeting/regional) API " +
+        "создаёт всё или ничего.",
       inputSchema: {
         campaignId: z.number().int().optional().describe("Id кампании (либо это поле, либо adGroupId)."),
         adGroupId: z.number().int().optional().describe("Id группы объявлений (либо это поле, либо campaignId)."),
@@ -123,31 +129,53 @@ export function registerBidModifierTools(server: McpServer, client: YandexDirect
         if ((campaignId === undefined) === (adGroupId === undefined)) {
           return fail("Нужно указать ровно одно: campaignId или adGroupId.");
         }
-        const item = compact({
-          CampaignId: campaignId,
-          AdGroupId: adGroupId,
-          MobileAdjustment: mobile
-            ? compact({ BidModifier: mobile.percent, OperatingSystemType: mobile.os })
-            : undefined,
-          DesktopAdjustment: desktop ? { BidModifier: desktop.percent } : undefined,
-          DemographicsAdjustments: demographics?.length
-            ? demographics.map((d) => compact({ Gender: d.gender, Age: d.age, BidModifier: d.percent }))
-            : undefined,
-          RetargetingAdjustments: retargeting?.length
-            ? retargeting.map((r) => ({
+        const target = compact({ CampaignId: campaignId, AdGroupId: adGroupId });
+        const items: { type: string; item: Record<string, unknown> }[] = [];
+        if (mobile) {
+          items.push({
+            type: "MOBILE_ADJUSTMENT",
+            item: { ...target, MobileAdjustment: compact({ BidModifier: mobile.percent, OperatingSystemType: mobile.os }) },
+          });
+        }
+        if (desktop) {
+          items.push({ type: "DESKTOP_ADJUSTMENT", item: { ...target, DesktopAdjustment: { BidModifier: desktop.percent } } });
+        }
+        if (demographics?.length) {
+          items.push({
+            type: "DEMOGRAPHICS_ADJUSTMENT",
+            item: {
+              ...target,
+              DemographicsAdjustments: demographics.map((d) => compact({ Gender: d.gender, Age: d.age, BidModifier: d.percent })),
+            },
+          });
+        }
+        if (retargeting?.length) {
+          items.push({
+            type: "RETARGETING_ADJUSTMENT",
+            item: {
+              ...target,
+              RetargetingAdjustments: retargeting.map((r) => ({
                 RetargetingConditionId: r.retargetingConditionId,
                 BidModifier: r.percent,
-              }))
-            : undefined,
-          RegionalAdjustments: regional?.length
-            ? regional.map((r) => ({ RegionId: r.regionId, BidModifier: r.percent }))
-            : undefined,
-        });
-        const hasAdjustment = Object.keys(item).some((k) => k !== "CampaignId" && k !== "AdGroupId");
-        if (!hasAdjustment) {
+              })),
+            },
+          });
+        }
+        if (regional?.length) {
+          items.push({
+            type: "REGIONAL_ADJUSTMENT",
+            item: { ...target, RegionalAdjustments: regional.map((r) => ({ RegionId: r.regionId, BidModifier: r.percent })) },
+          });
+        }
+        if (items.length === 0) {
           return fail("Нужно указать хотя бы одну корректировку: mobile, desktop, demographics, retargeting или regional.");
         }
-        const result = await client.call("bidmodifiers", "add", { BidModifiers: [item] });
+        const result = await client.call("bidmodifiers", "add", { BidModifiers: items.map((i) => i.item) });
+        // AddResults follow the request order; tag each with its type so the model can tell them apart.
+        const addResults = (result as { AddResults?: unknown })?.AddResults;
+        if (Array.isArray(addResults) && addResults.length === items.length) {
+          (result as { AddResults: unknown[] }).AddResults = addResults.map((r, i) => ({ Type: items[i].type, ...(r as object) }));
+        }
         return okOrPartial(result);
       } catch (e) {
         return fail(e);
