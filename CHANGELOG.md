@@ -5,6 +5,28 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 проект придерживается [семантического версионирования](https://semver.org/lang/ru/).
 
+## [1.10.0] — 2026-10-31
+
+### Удалено
+
+- `get_vcards`, `create_vcard`, `delete_vcards`: Директ отключил визитки и отвечает кодом 3500
+  на все методы `vcards`, включая чтение. Контакты в объявлении задаются организацией из Яндекс
+  Бизнеса (`BusinessId`).
+
+### Исправлено
+
+- `set_keyword_bids`: ставки уходят в `keywordbids.set` как `SearchBid`/`NetworkBid`. Раньше
+  инструмент слал `Bid`/`ContextBid` и каждый вызов падал с кодом 8000. Параметры инструмента
+  прежние.
+- `set_keyword_bids`: элемент без целевого id или с несколькими id, а также смешение
+  `keywordId`, `adGroupId` и `campaignId` в одном вызове отклоняются до запроса к API.
+- `list_ads`: из полей текстового объявления убраны `TrackingParams`, `LfHref` и `LfButtonText`.
+  API их не принимает в `TextAdFieldNames` и отвечал ошибкой 4000 или 5006.
+- `get_statistics`, `clients_overview`: имя отчёта получает случайный суффикс. Два отчёта,
+  запрошенные в одну миллисекунду, больше не конфликтуют с ошибкой 4000.
+- Телеметрия: исход ошибки определяется сначала по коду API в начале сообщения. Ошибка 8000 со
+  списком полей, где есть `ForbiddenPlatform`, считалась отказом в доступе.
+
 ## [1.9.0] — 2026-10-30
 
 ### Изменено
@@ -346,6 +368,7 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
+[1.10.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.6.0...v1.7.0
