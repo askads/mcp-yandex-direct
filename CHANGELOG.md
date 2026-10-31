@@ -5,6 +5,13 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 проект придерживается [семантического версионирования](https://semver.org/lang/ru/).
 
+## [1.10.1] — 2026-10-31
+
+### Исправлено
+
+- Телеметрия: сетевой сбой `fetch failed` считается ошибкой сети или таймаутом, а не багом
+  сервера.
+
 ## [1.10.0] — 2026-10-31
 
 ### Удалено
@@ -368,6 +375,7 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
+[1.10.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.7.0...v1.8.0
