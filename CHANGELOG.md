@@ -5,6 +5,14 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 проект придерживается [семантического версионирования](https://semver.org/lang/ru/).
 
+## [Unreleased]
+
+### Удалено
+
+- `plugin/` — Claude- и Cursor-плагин со скиллом `direct-audit`. Плагины живут отдельно от
+  MCP-сервера (маркетплейс `askads/claude-plugins`), а этот был закреплён на 1.7.0 и не
+  обновлялся с релизами.
+
 ## [1.12.0] — 2026-10-31
 
 ### Добавлено
@@ -425,6 +433,7 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
+[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.0...HEAD
 [1.12.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.11.0...v1.12.0 [1.11.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.9.0...v1.10.0
