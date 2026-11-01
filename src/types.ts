@@ -63,12 +63,14 @@ export class YandexDirectError extends Error {
   readonly detail?: string;
   readonly requestId?: string;
 
-  constructor(err: ApiError) {
+  /** `source` names a non-v5 origin (Live v4) after the text, so the code stays at the head. */
+  constructor(err: ApiError, source?: string) {
     const detail = err.error_detail ? `: ${err.error_detail}` : "";
     // request_id is what Yandex support asks for when triaging a failed call — surface it
     // in the message so it reaches the user/logs instead of being buried on the object.
     const reqId = err.request_id ? ` (request_id: ${err.request_id})` : "";
-    super(`[${err.error_code}] ${err.error_string}${detail}${reqId}`);
+    const from = source ? ` (${source})` : "";
+    super(`[${err.error_code}] ${err.error_string}${detail}${reqId}${from}`);
     this.name = "YandexDirectError";
     this.code = err.error_code;
     this.detail = err.error_detail;

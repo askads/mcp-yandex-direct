@@ -69,6 +69,28 @@ test("callV4() throws on a v4 error_code payload", async () => {
   }
 });
 
+test("callV4() raises a v4 error_code as YandexDirectError, code first and the source after", async () => {
+  const mock = mockFetch(
+    () =>
+      new Response(JSON.stringify({ error_code: 52, error_str: "Сервер авторизации временно недоступен", error_detail: "Повторите позже" }), {
+        status: 200,
+      }),
+  );
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false });
+    await assert.rejects(
+      () => client.callV4("AccountManagement", { Action: "Get" }),
+      (err: unknown) =>
+        err instanceof YandexDirectError &&
+        err.code === 52 &&
+        err.detail === "Повторите позже" &&
+        err.message === '[52] Сервер авторизации временно недоступен: Повторите позже (Live v4 "AccountManagement")',
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
 test("callV4() targets the sandbox v4 base in sandbox mode", async () => {
   const mock = mockFetch(() => new Response(JSON.stringify({ data: {} }), { status: 200 }));
   try {
