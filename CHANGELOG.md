@@ -444,7 +444,8 @@
 
 [Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...HEAD
 [1.12.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.0...v1.12.1
-[1.12.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.11.0...v1.12.0 [1.11.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.1...v1.11.0
+[1.12.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.11.0...v1.12.0
+[1.11.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.8.0...v1.9.0
