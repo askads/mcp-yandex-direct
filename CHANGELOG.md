@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+## [1.12.1] — 2026-11-01
+
+### Исправлено
+
+- `get_balance` и прочие вызовы Live v4: ошибка API начинается с кода —
+  `[52] Сервер авторизации временно недоступен (Live v4 "AccountManagement")` — и доходит до
+  выжимки телеметрии как `code=52 …`. Раньше префикс `Ошибка Live v4 …` перед кодом оставлял
+  выжимку пустой, и такие отказы приходили без текста.
+
 ### Удалено
 
 - `plugin/` — Claude- и Cursor-плагин со скиллом `direct-audit`. Плагины живут отдельно от
@@ -433,7 +442,8 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
-[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...HEAD
+[1.12.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.11.0...v1.12.0 [1.11.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.9.0...v1.10.0
