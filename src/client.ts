@@ -466,8 +466,11 @@ export class YandexDirectClient {
         if (data.error_code === AUTH_ERROR_CODE && this.tokens.usesStoredToken()) {
           throw new AuthRequiredError(RELOGIN_MESSAGE);
         }
-        const detail = data.error_detail ? `: ${data.error_detail}` : "";
-        throw new Error(`Ошибка Live v4 "${method}": [${data.error_code}] ${data.error_str ?? ""}${detail}`);
+        // Code first, as in v5: telemetry takes the excerpt only from a leading "[code] text".
+        throw new YandexDirectError(
+          { error_code: data.error_code, error_string: data.error_str ?? "", error_detail: data.error_detail },
+          `Live v4 "${method}"`,
+        );
       }
       if (data.data === undefined) {
         throw new Error(

@@ -13,6 +13,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { instrumentToolCalls, Telemetry, telemetryEnabled, DETAIL_MAX, errorDetail, noteFailure, TOOL_OUTCOMES, toolOutcome } from "./telemetry.js";
 import { fail } from "./tools/util.js";
+import { YandexDirectClient } from "./client.js";
+import { registerAccountTools } from "./tools/account.js";
 
 interface Sent {
   url: string;
@@ -682,4 +684,25 @@ test("a Node error with a code or system fields sends its type and code, never t
     ["error_internal", "internal: TypeError"],
   ]);
   assert.ok(!JSON.stringify(sent).includes("Иван"));
+});
+
+// --- Live v4 (get_balance): the API's own code and text reach the excerpt -------------------
+
+test("get_balance: a Live v4 error_code sends code and text, not an empty excerpt", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ error_code: 52, error_str: "Сервер авторизации временно недоступен" }), {
+      status: 200,
+    })) as typeof fetch;
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false });
+    const { mcp, sent } = await pairWith((server) => registerAccountTools(server, client));
+    const res = (await mcp.callTool({ name: "get_balance", arguments: {} })) as { content: { text: string }[] };
+    assert.match(res.content[0].text, /^Ошибка: \[52\] Сервер авторизации временно недоступен \(Live v4 "AccountManagement"\)$/);
+    const call = sent.find((s) => s.body.event === "tool_call")!;
+    assert.equal(call.body.reason, "error_upstream");
+    assert.equal(call.body.error_detail, "code=52 Сервер авторизации временно недоступен");
+  } finally {
+    globalThis.fetch = original;
+  }
 });
