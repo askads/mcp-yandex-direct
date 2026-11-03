@@ -15,6 +15,8 @@ import { instrumentToolCalls, Telemetry, telemetryEnabled, DETAIL_MAX, errorDeta
 import { fail } from "./tools/util.js";
 import { YandexDirectClient } from "./client.js";
 import { registerAccountTools } from "./tools/account.js";
+import { registerStatisticsTools } from "./tools/statistics.js";
+import { DirectServerError } from "./types.js";
 
 interface Sent {
   url: string;
@@ -702,6 +704,70 @@ test("get_balance: a Live v4 error_code sends code and text, not an empty excerp
     const call = sent.find((s) => s.body.event === "tool_call")!;
     assert.equal(call.body.reason, "error_upstream");
     assert.equal(call.body.error_detail, "code=52 Сервер авторизации временно недоступен");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+// --- Reports: 5xx until the poll ends is upstream, a report at 202 is a timeout -------------
+
+const REPORT_5XX =
+  'Ошибка: "reports" вернул HTTP 500 на 10 запросах за 47 с (ошибка при формировании отчёта на стороне Яндекса — повторите позже): code=1000 Внутренняя ошибка сервера';
+const REPORT_202 =
+  "Ошибка: Отчёт не был готов за 178 с; опросов: 10, последний HTTP 202. Отчёт продолжает формироваться у Яндекса — повторите запрос через минуту.";
+
+test("toolOutcome: a Reports 5xx text is upstream, a report still at 202 is a timeout", () => {
+  const res = (text: string) => ({ isError: true, content: [{ type: "text", text }] });
+  assert.equal(toolOutcome(res(REPORT_5XX)), "error_upstream");
+  assert.equal(toolOutcome(res(REPORT_202)), "error_timeout");
+});
+
+test("errorDetail: a report still at 202 keeps our phrase, not a bare status", () => {
+  assert.equal(errorDetail(REPORT_202), "отчёт не был готов; HTTP 202");
+  // The seconds never reach the excerpt: the same failure must group as one.
+  assert.equal(errorDetail(REPORT_202.replace("178", "93")), "отчёт не был готов; HTTP 202");
+});
+
+test("a Reports 5xx with a body about authorization is still upstream", async () => {
+  const err = new DirectServerError(
+    '"reports" вернул HTTP 503 на 10 запросах за 40 с (ошибка при формировании отчёта на стороне Яндекса — повторите позже): code=52 Сервер авторизации временно недоступен',
+    503,
+    10,
+  );
+  assert.equal(toolOutcome(undefined, err), "error_upstream");
+  const { mcp, sent } = await pairWith((server) => {
+    server.registerTool("returned", { description: "r", inputSchema: {} }, async () => fail(err));
+    server.registerTool("thrown", { description: "t", inputSchema: {} }, async () => {
+      throw err;
+    });
+  });
+  await mcp.callTool({ name: "returned", arguments: {} });
+  await mcp.callTool({ name: "thrown", arguments: {} });
+  const calls = sent.filter((s) => s.body.event === "tool_call");
+  assert.deepEqual(calls.map((c) => c.body.reason), ["error_upstream", "error_upstream"]);
+  for (const c of calls) assert.match(String(c.body.error_detail), /^HTTP 503/);
+});
+
+test("get_statistics: Reports answering 500 on every poll arrives as error_upstream", async () => {
+  const original = globalThis.fetch;
+  let polls = 0;
+  globalThis.fetch = (async () => {
+    polls++;
+    return new Response(JSON.stringify({ error: { error_code: "1000", error_string: "Внутренняя ошибка сервера" } }), {
+      status: 500,
+      headers: { retryIn: "0" },
+    });
+  }) as typeof fetch;
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const { mcp, sent } = await pairWith((server) => registerStatisticsTools(server, client));
+    const res = (await mcp.callTool({ name: "get_statistics", arguments: {} })) as { content: { text: string }[] };
+    assert.match(res.content[0].text, /HTTP 500 на 10 запросах .*: code=1000 Внутренняя ошибка сервера$/);
+    assert.doesNotMatch(res.content[0].text, /не был готов|таймаут/);
+    assert.equal(polls, 10);
+    const call = sent.find((s) => s.body.event === "tool_call")!;
+    assert.equal(call.body.reason, "error_upstream");
+    assert.match(String(call.body.error_detail), /^(?:HTTP 500|code=)/);
   } finally {
     globalThis.fetch = original;
   }

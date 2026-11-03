@@ -5,6 +5,7 @@ import {
   ClientAccessError,
   DIRECT_RATE_LIMITED_MARKER,
   DirectRateLimitError,
+  DirectServerError,
   DirectUnavailableError,
   YandexDirectError,
 } from "./types.js";
@@ -576,6 +577,7 @@ export class YandexDirectClient {
     };
     const maxPolls = opts.maxPolls ?? 10;
     let lastStatus = 0;
+    let lastText = "";
     let refreshed = false;
     let polls = 0;
     const rate = new MethodRateBudget("reports", REPORT_DEADLINE_MS);
@@ -585,6 +587,9 @@ export class YandexDirectClient {
     }
 
     for (let attempt = 0; attempt < maxPolls; attempt++) {
+      // A spent budget ends the poll with what the last answer said, not with a bare
+      // "did not fit the deadline" from fetchWithTimeout.
+      if (rate.remainingMs <= 0) break;
       polls++;
       this.lastReportAt = Date.now();
       // Headers are rebuilt per poll so the token is resolved through the
@@ -601,6 +606,7 @@ export class YandexDirectClient {
         rate,
       );
       lastStatus = res.status;
+      lastText = text;
 
       if (res.status === 200) return text;
 
@@ -660,12 +666,40 @@ export class YandexDirectClient {
     }
 
     if (lastStatus === 204) throw new DirectUnavailableError('"reports"', lastStatus, polls);
+    if (lastStatus >= 500) {
+      // The server failed on every poll: the report is not being generated, so the text
+      // must not promise it is.
+      const sec = Math.round(rate.elapsedMs / 1000);
+      const hint =
+        lastStatus === 502
+          ? "время обработки превысило серверное ограничение — уменьшите период или число полей"
+          : "ошибка при формировании отчёта на стороне Яндекса — повторите позже";
+      throw new DirectServerError(
+        `"reports" вернул HTTP ${lastStatus} на ${polls} запросах за ${sec} с (${hint}): ${serverErrorExcerpt(lastText)}`,
+        lastStatus,
+        polls,
+      );
+    }
     throw new Error(
       `Отчёт не был готов за ${Math.round(rate.elapsedMs / 1000)} с; опросов: ${polls}, ` +
         `последний HTTP ${lastStatus}. Отчёт продолжает формироваться у Яндекса — ` +
         "повторите запрос через минуту.",
     );
   }
+}
+
+/** `code=<error_code> <error_string>` of a Reports error body, else its first 300 characters. */
+function serverErrorExcerpt(text: string): string {
+  try {
+    const err = (JSON.parse(text) as { error?: Partial<ApiError> } | null)?.error;
+    if (err && err.error_code !== undefined) {
+      return `code=${err.error_code} ${err.error_string ?? ""}`.trim();
+    }
+  } catch {
+    // Not JSON: the raw text below.
+  }
+  const flat = text.split(/\s+/).filter(Boolean).join(" ");
+  return flat ? flat.slice(0, 300) : "пустое тело ответа";
 }
 
 /** The limit a code-56 message states. */

@@ -13,6 +13,7 @@ import {
   DIRECT_RATE_LIMITED_MARKER,
   DIRECT_UNAVAILABLE_MARKER,
   DirectRateLimitError,
+  DirectServerError,
   DirectUnavailableError,
   YandexDirectError,
 } from "./types.js";
@@ -526,20 +527,110 @@ test("report() retries a transient 5xx and then returns the body", async () => {
   }
 });
 
-test("report() gives up on a persistent 5xx after maxPolls", async () => {
+test("report() gives up on a persistent 5xx after maxPolls and names the server error", async () => {
   let calls = 0;
   const mock = mockFetch(() => {
     calls++;
-    return new Response("err", { status: 503, headers: { retryIn: "0" } });
+    return new Response("upstream   broke\n here", { status: 503, headers: { retryIn: "0" } });
   });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    const err = await client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 3 }).then(
+      () => assert.fail("must throw"),
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof DirectServerError);
+    assert.equal(err.status, 503);
+    assert.equal(err.attempts, 3);
+    assert.match(err.message, /^"reports" вернул HTTP 503 на 3 запросах за \d+ с \(ошибка при формировании отчёта/);
+    // The body excerpt reaches the text, whitespace collapsed.
+    assert.match(err.message, /: upstream broke here$/);
+    assert.doesNotMatch(err.message, /не был готов|не готов|таймаут/);
+    assert.equal(calls, 3);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("report(): a 5xx JSON error body is quoted as code and text", async () => {
+  const body = JSON.stringify({ error: { error_code: "1000", error_string: "Сервис временно недоступен", request_id: "r1" } });
+  const mock = mockFetch(() => new Response(body, { status: 500, headers: { retryIn: "0" } }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(
+      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 2 }),
+      (e: Error) => {
+        assert.match(e.message, /HTTP 500 на 2 запросах/);
+        assert.match(e.message, /: code=1000 Сервис временно недоступен$/);
+        return true;
+      },
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
+test("report(): a persistent 502 advises a shorter period", async () => {
+  const mock = mockFetch(() => new Response("", { status: 502, headers: { retryIn: "0" } }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(
+      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 2 }),
+      /HTTP 502 на 2 запросах .*уменьшите период/,
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
+test("report(): a report still at 202 after maxPolls is reported as not ready", async () => {
+  const mock = mockFetch(() => new Response("", { status: 202, headers: { retryIn: "0" } }));
   try {
     const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
     await assert.rejects(
       () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }, { maxPolls: 3 }),
-      /последний HTTP 503/,
+      (e: Error) => {
+        assert.ok(!(e instanceof DirectServerError));
+        assert.match(e.message, /не был готов/);
+        assert.match(e.message, /опросов: 3, последний HTTP 202/);
+        return true;
+      },
     );
-    assert.equal(calls, 3);
   } finally {
+    mock.restore();
+  }
+});
+
+test("report(): a budget spent by the poll wait ends as not ready, not as a missed deadline", async () => {
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  const original = timing.sleep;
+  // The wait overshoots by 1 ms, as a real timer does.
+  timing.sleep = async (ms: number) => {
+    clock += ms + 1;
+  };
+  let calls = 0;
+  // The first answer comes at 170 s; the 10 s retryIn still fits the 180 s budget exactly.
+  const mock = mockFetch(() => {
+    calls++;
+    clock += 170_000;
+    return new Response("", { status: 202, headers: { retryIn: "10" } });
+  });
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(
+      () => client.report({ ReportType: "ACCOUNT_PERFORMANCE_REPORT" }),
+      (e: Error) => {
+        assert.match(e.message, /^Отчёт не был готов за 180 с; опросов: 1, последний HTTP 202/);
+        assert.doesNotMatch(e.message, /не уложился/);
+        return true;
+      },
+    );
+    assert.equal(calls, 1);
+  } finally {
+    Date.now = realNow;
+    timing.sleep = original;
     mock.restore();
   }
 });
