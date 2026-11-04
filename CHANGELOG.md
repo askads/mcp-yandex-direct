@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [1.12.2] — 2026-11-04
+
 ### Исправлено
 
 - `get_statistics`: если Reports все опросы подряд отвечает 5xx, ошибка называет код ответа,
@@ -461,7 +463,8 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
-[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...HEAD
+[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.2...HEAD
+[1.12.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...v1.12.2
 [1.12.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.10.1...v1.11.0
