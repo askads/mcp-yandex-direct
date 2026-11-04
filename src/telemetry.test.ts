@@ -17,6 +17,7 @@ import { YandexDirectClient } from "./client.js";
 import { registerAccountTools } from "./tools/account.js";
 import { registerStatisticsTools } from "./tools/statistics.js";
 import { DirectServerError } from "./types.js";
+import { instrumentClientLogin } from "./clientLogin.js";
 
 interface Sent {
   url: string;
@@ -746,6 +747,25 @@ test("a Reports 5xx with a body about authorization is still upstream", async ()
   const calls = sent.filter((s) => s.body.event === "tool_call");
   assert.deepEqual(calls.map((c) => c.body.reason), ["error_upstream", "error_upstream"]);
   for (const c of calls) assert.match(String(c.body.error_detail), /^HTTP 503/);
+});
+
+test("the failure note survives client_login labeling (production wrapper order)", async () => {
+  const err = new DirectServerError(
+    '"reports" вернул HTTP 503 на 10 запросах за 40 с (ошибка при формировании отчёта на стороне Яндекса — повторите позже): code=52 Сервер авторизации временно недоступен',
+    503,
+    10,
+  );
+  const { mcp, sent } = await pairWith((server) => {
+    instrumentClientLogin(server);
+    server.registerTool("scoped", { description: "s", inputSchema: {} }, async () => fail(err));
+    server.registerTool("local", { description: "l", inputSchema: {} }, async () => fail("неверный период"));
+  });
+  const res = await mcp.callTool({ name: "scoped", arguments: { client_login: "client-a" } });
+  assert.match(JSON.stringify(res.content), /Кабинет клиента: client-a/);
+  await mcp.callTool({ name: "local", arguments: { client_login: "client-a" } });
+  const calls = sent.filter((s) => s.body.event === "tool_call");
+  assert.deepEqual(calls.map((c) => c.body.reason), ["error_upstream", "error_invalid_request"]);
+  assert.match(String(calls[1].body.error_detail), /^local: /);
 });
 
 test("get_statistics: Reports answering 500 on every poll arrives as error_upstream", async () => {

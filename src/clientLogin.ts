@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { carryFailure } from "./telemetry.js";
 
 /**
  * The advertiser one tool call works on, sent as the Client-Login header. Lives in
@@ -71,13 +72,14 @@ export function labelResult(result: ToolResult, login: string): ToolResult {
       const data = JSON.parse(first.text) as unknown;
       if (data && typeof data === "object" && !Array.isArray(data)) {
         const text = JSON.stringify({ _client: login, ...(data as Record<string, unknown>) });
-        return { ...result, content: [{ ...first, text }, ...rest] };
+        return carryFailure(result, { ...result, content: [{ ...first, text }, ...rest] });
       }
     } catch {
       // Not JSON after all — falls through to the extra block.
     }
   }
-  return { ...result, content: [...result.content, { type: "text", text: `Кабинет клиента: ${login}` }] };
+  // The error's telemetry note (origin, class) must survive the copy.
+  return carryFailure(result, { ...result, content: [...result.content, { type: "text", text: `Кабинет клиента: ${login}` }] });
 }
 
 /**

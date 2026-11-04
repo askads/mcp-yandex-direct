@@ -324,6 +324,20 @@ export function noteFailure<T>(result: T, err: unknown): T {
   return result;
 }
 
+/**
+ * Moves the failure note of `from` onto `to`: a wrapper that rebuilds the result (labelResult
+ * adds the client's name) would otherwise drop it, since FAILURE_ORIGIN is keyed by identity.
+ */
+export function carryFailure<T>(from: unknown, to: T): T {
+  try {
+    const noted = from && typeof from === "object" ? FAILURE_ORIGIN.get(from) : undefined;
+    if (noted && to && typeof to === "object") FAILURE_ORIGIN.set(to, noted);
+  } catch {
+    // never affects the result
+  }
+  return to;
+}
+
 /** A JS error quotes identifiers of our code, not user data, so its quotes are kept. */
 function maskedOwnText(prefix: string, text: string, quoted = true): string {
   return (prefix + scrub(text.slice(0, 2 * DETAIL_MAX).split(/\s+/).filter(Boolean).join(" "), quoted)).slice(0, DETAIL_MAX);
