@@ -1,8 +1,9 @@
-import { randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { YandexDirectError } from "../types.js";
 import { noteFailure } from "../telemetry.js";
+import { currentClientLogin } from "../clientLogin.js";
 
 /**
  * A date in YYYY-MM-DD form, validated before the request reaches the API.
@@ -16,11 +17,22 @@ export const isoDate = () =>
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата должна быть в формате YYYY-MM-DD");
 
 /**
- * ReportName for one tool call: Reports answers code 4000 to a reused name with other params,
- * and a timestamp alone repeats within a millisecond. Built once, so every poll resends it.
+ * ReportName for a report request, derived from its params: the same request within the same
+ * UTC hour gets the same name. Reports treats "same name, same params" as the same report, so a
+ * call repeated after "отчёт не был готов" picks up the report still queued offline instead of
+ * queueing one more — with a random name each retry added a report until the queue overflowed
+ * (code 9000, "5–6 отчетов ожидают формирования"). Other params give another hash, so code 4000
+ * ("name reused with other params") cannot happen. The hour bucket bounds how stale a reused
+ * ready report can be for relative ranges (TODAY, LAST_7_DAYS). Client-Login is hashed in so two
+ * advertisers never share a name. Built once per request, so every poll resends it.
  */
-export function reportName(prefix: string): string {
-  return `${prefix}-${Date.now()}-${randomBytes(4).toString("hex")}`;
+export function reportName(prefix: string, params: object, now: Date = new Date()): string {
+  const hour = now.toISOString().slice(0, 13).replace(/\D/g, "");
+  const hash = createHash("sha256")
+    .update(JSON.stringify([currentClientLogin() ?? "", params]))
+    .digest("hex")
+    .slice(0, 12);
+  return `${prefix}-${hour}-${hash}`;
 }
 
 export function ok(data: unknown): CallToolResult {

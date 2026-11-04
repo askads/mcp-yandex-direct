@@ -309,10 +309,9 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
         ];
         if (filter.length) selection.Filter = filter;
 
-        const params = {
+        const request = {
           SelectionCriteria: selection,
           FieldNames: fieldNames?.length ? fieldNames : DEFAULT_FIELDS_BY_TYPE[type],
-          ReportName: reportName(`mcp-${type}`),
           ReportType: type,
           DateRangeType: range,
           Format: "TSV",
@@ -323,14 +322,18 @@ export function registerStatisticsTools(server: McpServer, client: YandexDirectC
           // The API accepts AttributionModels only next to Goals (code 4000 otherwise).
           ...(goals?.length && attributionModels?.length ? { AttributionModels: attributionModels } : {}),
         };
+        const params = { ...request, ReportName: reportName(`mcp-${type}`, request) };
 
         if (compareTo) {
           // Two Reports tasks, one after the other (client.report keeps the pace between them).
           const currentTsv = await client.report(params);
-          const previousTsv = await client.report({
-            ...params,
+          const previous = {
+            ...request,
             SelectionCriteria: { ...selection, DateFrom: compareTo.dateFrom, DateTo: compareTo.dateTo },
-            ReportName: reportName(`mcp-${type}-compare`),
+          };
+          const previousTsv = await client.report({
+            ...previous,
+            ReportName: reportName(`mcp-${type}-compare`, previous),
           });
           return ok(
             compareReports(

@@ -58,6 +58,23 @@ export class DirectUnavailableError extends Error {
   }
 }
 
+/**
+ * Reports kept answering 5xx until the poll budget ran out: the server failed, the report is
+ * not being generated. The class, not the quoted body, decides the telemetry outcome
+ * (error_upstream): a body that mentions authorization or a limit must not reclassify it.
+ */
+export class DirectServerError extends Error {
+  readonly status: number;
+  readonly attempts: number;
+
+  constructor(message: string, status: number, attempts: number) {
+    super(message);
+    this.name = "DirectServerError";
+    this.status = status;
+    this.attempts = attempts;
+  }
+}
+
 export class YandexDirectError extends Error {
   readonly code: number;
   readonly detail?: string;

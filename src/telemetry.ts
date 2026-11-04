@@ -187,6 +187,10 @@ const CODE_OUTCOMES = new Map<string, ToolOutcome>([
 ]);
 const LEADING_CODE = /^[^[\n]{0,60}\[(\d{1,5})\]/;
 
+// Own errors whose class alone fixes the outcome: their text quotes a server body, which may
+// name authorization or a limit and must not decide the class.
+const CLASS_OUTCOMES = new Map<string, ToolOutcome>([["DirectServerError", "error_upstream"]]);
+
 // Inputs are cut before any regex runs: a long argument echoed in an error must not stall the call.
 const TEXT_MAX = 4000;
 
@@ -204,6 +208,10 @@ function resultText(value: unknown): string {
 export function toolOutcome(result: unknown, ...thrown: [unknown?]): ToolOutcome {
   const didThrow = thrown.length > 0;
   if (!didThrow && !(result as { isError?: unknown } | null)?.isError) return "ok";
+  if (didThrow && thrown[0] instanceof Error) {
+    const byClass = CLASS_OUTCOMES.get(thrown[0].name);
+    if (byClass) return byClass;
+  }
   const text = resultText(didThrow ? thrown[0] : result);
   const byCode = CODE_OUTCOMES.get(LEADING_CODE.exec(text)?.[1] ?? "");
   if (byCode) return byCode;
@@ -214,7 +222,7 @@ export function toolOutcome(result: unknown, ...thrown: [unknown?]): ToolOutcome
 /** Error excerpt: allowlisted fragments of the error text, masked (port of the Ask Ads gateway's). */
 export const DETAIL_MAX = 200;
 const PICK =
-  /\bHTTP (?<http>\d{3})\b(?::\s*(?<htext>[^{[]{1,200}))?|^(?:Ошибка: )?\[(?<bcode>\d{1,5})\]\s*(?<btext>[^;(]{1,200})|\[(?<tag>[A-Za-z][A-Za-z_]{2,})\]\s*(?<ttext>[^;(]{0,200})|\berror_code["']?\s*[:=]\s*["']?(?<code>\d{1,5})\b|\b(?<key>error_string|error_detail|error_type|message)["']?\s*[:=]\s*["']?(?<value>[^"'}\]]{1,80})|\b(?<net>ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|timed out|fetch failed|socket hang up|connection closed)\b|(?<netru>превысил таймаут)/gi;
+  /\bHTTP (?<http>\d{3})\b(?::\s*(?<htext>[^{[]{1,200}))?|^(?:Ошибка: )?\[(?<bcode>\d{1,5})\]\s*(?<btext>[^;(]{1,200})|\[(?<tag>[A-Za-z][A-Za-z_]{2,})\]\s*(?<ttext>[^;(]{0,200})|\berror_code["']?\s*[:=]\s*["']?(?<code>\d{1,5})\b|\b(?<key>error_string|error_detail|error_type|message)["']?\s*[:=]\s*["']?(?<value>[^"'}\]]{1,80})|\b(?<net>ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|timed out|fetch failed|socket hang up|connection closed)\b|(?<netru>превысил таймаут)|(?<own>отч[её]т не был готов)/gi;
 const SCRUB =
   /(?<key>(?:login|password|secret|token|api[_-]?key|authorization)\s*[:=]\s*["']?|(?:bearer|basic)\s+)(?<val>[^,;]+)|[^\s,;]*(?:@|:\/\/|%3A|\p{L}\.\p{L})[^\s,;]*|(?<key2>\b(?:token|secret|password|api[_-]?key|access_token|refresh_token|client_secret)\s+)(?!(?:expired|invalid|is|was|for|has|not|missing|required|revoked|provided|type)\b)\S+|\b(?:y0_|AQAA|AQVN|t1\.|sk-|vk1\.|vk_|ghp_|ya29\.)\S+|\b(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{20,}\b|\+?\d(?:[\s().-]*\d){3,}/giu;
 const QUOTED = /(?<!\p{L})'[^'\n]+(?:'(?!\p{L})|$)|"[^"\n]+(?:"|$)|«[^»]+(?:»|$)/gu;
@@ -246,7 +254,7 @@ export function errorDetail(text: string): string {
       token = `${g.tag} ${scrub(g.ttext ?? "")}`;
     } else if (g.code) token = `code=${g.code}`;
     else if (g.key) token = `${g.key.toLowerCase()}=${scrub(g.value ?? "")}`;
-    else token = (g.net ?? g.netru ?? "").toLowerCase();
+    else token = (g.net ?? g.netru ?? g.own ?? "").toLowerCase();
     token = token.trim();
     if (!parts.includes(token)) parts.push(token);
   }
@@ -316,6 +324,20 @@ export function noteFailure<T>(result: T, err: unknown): T {
   return result;
 }
 
+/**
+ * Moves the failure note of `from` onto `to`: a wrapper that rebuilds the result (labelResult
+ * adds the client's name) would otherwise drop it, since FAILURE_ORIGIN is keyed by identity.
+ */
+export function carryFailure<T>(from: unknown, to: T): T {
+  try {
+    const noted = from && typeof from === "object" ? FAILURE_ORIGIN.get(from) : undefined;
+    if (noted && to && typeof to === "object") FAILURE_ORIGIN.set(to, noted);
+  } catch {
+    // never affects the result
+  }
+  return to;
+}
+
 /** A JS error quotes identifiers of our code, not user data, so its quotes are kept. */
 function maskedOwnText(prefix: string, text: string, quoted = true): string {
   return (prefix + scrub(text.slice(0, 2 * DETAIL_MAX).split(/\s+/).filter(Boolean).join(" "), quoted)).slice(0, DETAIL_MAX);
@@ -329,6 +351,8 @@ function reportCall(telemetry: Telemetry, tool: string, value: unknown, thrown: 
     let detail = "";
     if (reason !== "ok") {
       const noted = value && typeof value === "object" ? FAILURE_ORIGIN.get(value) : undefined;
+      const byClass = noted?.origin === "error" ? CLASS_OUTCOMES.get(noted.text) : undefined;
+      if (byClass) reason = byClass;
       const net = noted?.origin === "network" ? noted : thrown ? fetchFailure(value) : undefined;
       const bug = noted?.origin === "internal" ? noted.text : thrown ? jsBug(value) : undefined;
       if (net) {
