@@ -163,17 +163,17 @@ export function parseAccountTotals(tsv: string): ClientStats {
 
 /** One client's totals for `period`, under its own Client-Login. */
 async function fetchClientStats(client: YandexDirectClient, login: string, period: string): Promise<ClientStats> {
+  const request = {
+    SelectionCriteria: {},
+    FieldNames: ["Impressions", "Clicks", "Cost"],
+    ReportType: "ACCOUNT_PERFORMANCE_REPORT",
+    DateRangeType: period,
+    Format: "TSV",
+    IncludeVAT: "YES",
+    IncludeDiscount: "NO",
+  };
   const tsv = await withClientLogin(login, () =>
-    client.report({
-      SelectionCriteria: {},
-      FieldNames: ["Impressions", "Clicks", "Cost"],
-      ReportName: reportName(`mcp-overview-${login}-${period}`),
-      ReportType: "ACCOUNT_PERFORMANCE_REPORT",
-      DateRangeType: period,
-      Format: "TSV",
-      IncludeVAT: "YES",
-      IncludeDiscount: "NO",
-    }),
+    client.report({ ...request, ReportName: reportName(`mcp-overview-${period}`, request) }),
   );
   return parseAccountTotals(tsv);
 }
