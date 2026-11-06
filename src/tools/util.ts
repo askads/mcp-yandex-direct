@@ -166,17 +166,18 @@ export function fromMicros(micros: number): number {
  * (statistics) already returns currency units, and inputs are taken in units,
  * so list_* output is normalized here to keep money consistent across tools.
  *
- * Bid/ContextBid (keyword bids), Amount (DailyBudget) and the shared-account
- * Funds money keys — Sum/Balance/SumAvailableForTransfer (CampaignFunds) and
- * Spend (SharedAccountFunds) — are all in micros. These Funds keys are money-only
+ * Bid/ContextBid (keyword bids) and the shared-account Funds money keys —
+ * Sum/Balance/SumAvailableForTransfer (CampaignFunds) and Spend
+ * (SharedAccountFunds) — are all in micros. These Funds keys are money-only
  * in the Direct schema, so recursive normalization does not touch same-named
- * non-money fields. Deprecated keys (BalanceBonus, Refund) are intentionally
- * omitted rather than risk converting a value the API no longer maintains.
+ * non-money fields. Deprecated keys (BalanceBonus, Refund, DailyBudget.Amount)
+ * are intentionally omitted rather than risk converting a value the API no
+ * longer maintains. Strategy money (WeeklySpendLimit, …) has its own set in
+ * strategy.ts.
  */
 const MONEY_FIELDS = new Set([
   "Bid",
   "ContextBid",
-  "Amount",
   "Sum",
   "Balance",
   "SumAvailableForTransfer",

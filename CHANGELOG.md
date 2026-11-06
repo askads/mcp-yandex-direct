@@ -7,6 +7,45 @@
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-11-06
+
+Яндекс предупредил письмом: с 30.11.2026 параметр `DailyBudget` в API Директа перестаёт
+работать — кампании с ручными ставками перешли на недельный бюджет, как и автостратегии
+(`WeeklySpendLimit`). Неизвестно, ответит ли API на `DailyBudget` ошибкой или `null`, поэтому
+поле убрано из запросов целиком.
+
+### Изменено
+
+- `create_text_campaign`: вместо `dailyBudgetAmount` / `dailyBudgetMode` — `weeklyBudgetAmount`,
+  недельный бюджет ручных ставок в валюте аккаунта. Он уходит внутри стратегии по умолчанию:
+  `Search: {BiddingStrategyType: HIGHEST_POSITION, HighestPosition: {WeeklySpendLimit}}`. Вместе с
+  явным `biddingStrategy` отклоняется до запроса — у явной стратегии бюджет задаётся внутри неё.
+- `update_campaign`: меняет только название, дату окончания и минус-фразы. Бюджет — часть
+  стратегии, его меняет `set_campaign_strategy` (описание обоих инструментов направляет туда).
+  Дочитки режима `DailyBudget` перед записью больше нет.
+- `dailyBudgetAmount` / `dailyBudgetMode` у обоих инструментов остались в схеме как устаревшие и
+  отклоняются до запроса с подсказкой (`weeklyBudgetAmount` / `set_campaign_strategy`). Убрать их
+  совсем было нельзя: SDK молча отбрасывает неизвестные аргументы, и клиент с закешированным
+  `tools/list` (ChatGPT держит его на чат) создал бы кампанию без бюджета или переименовал её без
+  смены бюджета, увидев «успех».
+- `list_campaigns`: `DailyBudget` убран из полей по умолчанию и из `fieldNames`. Недельный бюджет
+  и ручных ставок, и автостратегий виден в `BiddingStrategy` при `strategy: true`.
+- `list_campaigns`: при `strategy: true` в блоке `TextCampaign` / `UnifiedCampaign` приходит
+  `WeeklyBudgetRollover` — сколько добавлено к недельному бюджету за счёт неиспользованного на
+  прошлой неделе (Директ переносит до 30 %), в валюте аккаунта; `null` остаётся `null`.
+- `set_campaign_strategy`: описание называет `HighestPosition: {WeeklySpendLimit}` как место
+  недельного бюджета ручных ставок (структура из `update-unified-campaign`; в доке TextCampaign
+  её пока нет). Конвертация денег в обе стороны уже покрывала `WeeklySpendLimit` в любой
+  структуре, код не менялся.
+- Инструкции сервера и README: бюджет описан как недельный и часть стратегии, а не как поле
+  кампании любого типа.
+
+### Удалено
+
+- Запись `DailyBudget` в `create_text_campaign` и `update_campaign` (параметры теперь только
+  отклоняют вызов, см. выше); `DailyBudget` в `fieldNames` у `list_campaigns`; `Amount` из
+  денежных полей `normalizeMoney` (в v5 он встречался только в `DailyBudget`).
+
 ## [1.12.2] — 2026-11-04
 
 ### Исправлено
@@ -463,7 +502,8 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
-[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.2...HEAD
+[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.2...v1.13.0
 [1.12.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...v1.12.2
 [1.12.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.11.0...v1.12.0

@@ -26,8 +26,10 @@ const CAMPAIGN_STATUSES = ["ACCEPTED", "DRAFT", "MODERATION", "REJECTED"] as con
 // campaigns.get FieldNames as v501 lists them (checked live 2026-10-30). Type-specific
 // settings (strategy, TextCampaign.*, UnifiedCampaign.*) are separate *FieldNames params,
 // not values here — an enum keeps the model from sending them and drawing code 8000.
+// DailyBudget is gone: Yandex retires it on 2026-11-30 (manual-bid campaigns moved to the
+// weekly budget, HighestPosition.WeeklySpendLimit inside BiddingStrategy).
 const CAMPAIGN_FIELDS = [
-  "BlockedIps", "ExcludedSites", "Currency", "DailyBudget", "Notification", "EndDate", "Funds",
+  "BlockedIps", "ExcludedSites", "Currency", "Notification", "EndDate", "Funds",
   "ClientInfo", "Id", "Name", "NegativeKeywords", "RepresentedBy", "StartDate", "CreateTime",
   "Statistics", "State", "Status", "StatusPayment", "StatusClarification", "SourceId",
   "TimeTargeting", "TimeZone", "Type",
@@ -41,19 +43,52 @@ const DEFAULT_FIELDS = [
   "State",
   "StartDate",
   "Currency",
-  "DailyBudget",
 ];
 
 /**
  * Manual search bids with the network disabled. HIGHEST_POSITION is the
  * manual-bid BiddingStrategyType (current in API v5, not a removed legacy
  * value) and SERVING_OFF keeps a new campaign from spending on the network
- * unexpectedly. Pass an explicit biddingStrategy to use an auto-strategy.
+ * unexpectedly. The weekly budget of manual bids lives inside the strategy
+ * (HighestPosition.WeeklySpendLimit, micros). Pass an explicit biddingStrategy
+ * to use an auto-strategy.
  */
-const DEFAULT_BIDDING_STRATEGY = {
-  Search: { BiddingStrategyType: "HIGHEST_POSITION" },
-  Network: { BiddingStrategyType: "SERVING_OFF" },
-};
+/**
+ * The retired DailyBudget parameters stay in the schema on purpose: the MCP SDK strips
+ * arguments the schema does not know, so a client with a cached tools/list (ChatGPT keeps
+ * it per chat) would send them, get them dropped and create or update a campaign without
+ * its budget while seeing success. Keeping them lets the handler refuse explicitly.
+ */
+function deprecatedDailyBudget(hint: string) {
+  const note = `Устарело: дневного бюджета в Директе больше нет (с 30.11.2026) — вызов с этим параметром отклоняется. ${hint}`;
+  return {
+    dailyBudgetAmount: z.number().optional().describe(note),
+    dailyBudgetMode: z.enum(["STANDARD", "DISTRIBUTED"]).optional().describe(note),
+  };
+}
+
+function rejectDailyBudget(args: { dailyBudgetAmount?: number; dailyBudgetMode?: string }, hint: string) {
+  if (args.dailyBudgetAmount === undefined && args.dailyBudgetMode === undefined) return undefined;
+  return fail(
+    "dailyBudgetAmount и dailyBudgetMode больше не поддерживаются: с 30.11.2026 дневного бюджета (DailyBudget) " +
+      `в Директе нет, бюджет недельный и является частью стратегии. ${hint}`,
+  );
+}
+
+const CREATE_BUDGET_HINT =
+  "Недельный бюджет ручных ставок — weeklyBudgetAmount; у явной biddingStrategy — WeeklySpendLimit внутри неё.";
+const UPDATE_BUDGET_HINT =
+  "Менять бюджет — set_campaign_strategy (ручные ставки — HighestPosition: {WeeklySpendLimit}, автостратегии — WeeklySpendLimit в их структуре параметров).";
+
+function defaultBiddingStrategy(weeklyBudgetAmount?: number) {
+  return {
+    Search: compact({
+      BiddingStrategyType: "HIGHEST_POSITION",
+      HighestPosition: weeklyBudgetAmount ? { WeeklySpendLimit: toMicros(weeklyBudgetAmount) } : undefined,
+    }),
+    Network: { BiddingStrategyType: "SERVING_OFF" },
+  };
+}
 
 export function registerCampaignTools(server: McpServer, client: YandexDirectClient): void {
   server.registerTool(
@@ -62,8 +97,9 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "Список кампаний",
       annotations: READ_ONLY,
       description:
-        "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Денежные поля (DailyBudget.Amount и Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта. " +
-          "strategy: true добавляет блок TextCampaign/UnifiedCampaign со стратегией (BiddingStrategy), ключевыми целями (PriorityGoals), счётчиками Метрики, моделью атрибуции и пакетной стратегией — деньги в нём тоже в валюте аккаунта, а сам объект BiddingStrategy в этом виде принимает set_campaign_strategy.",
+        "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Денежные поля (Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта. " +
+          "Бюджет кампании — недельный (WeeklySpendLimit) и у ручных ставок, и у автостратегий; он лежит внутри BiddingStrategy и виден только при strategy: true (дневного бюджета DailyBudget у API больше нет). " +
+          "strategy: true добавляет блок TextCampaign/UnifiedCampaign со стратегией (BiddingStrategy), ключевыми целями (PriorityGoals), счётчиками Метрики, моделью атрибуции, пакетной стратегией и переносом бюджета (WeeklyBudgetRollover — сколько добавлено к недельному бюджету за счёт неиспользованного на прошлой неделе, до 30%; null — перенос не применяется или данных нет) — деньги в нём тоже в валюте аккаунта, а сам объект BiddingStrategy в этом виде принимает set_campaign_strategy.",
       inputSchema: {
         ids: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         types: z.array(z.enum(CAMPAIGN_TYPES)).optional().describe("Фильтр по типам кампаний."),
@@ -123,21 +159,19 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "Создать текстовую кампанию",
       annotations: WRITE_CREATE,
       description:
-        "Создаёт кампанию TextCampaign (текстово-графические объявления). Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF); чтобы включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}.",
+        "Создаёт кампанию TextCampaign (текстово-графические объявления). Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF), их недельный бюджет — weeklyBudgetAmount; " +
+          "чтобы включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}, бюджет тогда внутри него (WeeklySpendLimit в структуре параметров стратегии). Дневного бюджета у Директа больше нет: бюджет недельный и часть стратегии.",
       inputSchema: {
         name: z.string().min(1).describe("Название кампании."),
         startDate: isoDate().describe("Дата начала в формате YYYY-MM-DD."),
         endDate: isoDate().optional().describe("Дата окончания в формате YYYY-MM-DD."),
-        dailyBudgetAmount: z
+        weeklyBudgetAmount: z
           .number()
           .positive()
           .optional()
-          .describe("Дневной бюджет в валюте аккаунта (конвертируется в микроединицы)."),
-        dailyBudgetMode: z
-          .enum(["STANDARD", "DISTRIBUTED"])
-          .optional()
           .describe(
-            "Режим траты дневного бюджета: STANDARD — показы как можно быстрее, DISTRIBUTED — равномерно в течение дня. По умолчанию STANDARD.",
+            "Недельный бюджет ручных ставок в валюте аккаунта (HighestPosition.WeeklySpendLimit стратегии по умолчанию). " +
+              "Только без biddingStrategy — у явной стратегии бюджет задаётся внутри неё. Минимум — get_dictionaries → Currencies.",
           ),
         biddingStrategy: z
           .record(z.any())
@@ -146,22 +180,29 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
             "Полный объект BiddingStrategy {Search, Network} в формате API, деньги (WeeklySpendLimit, BidCeiling, " +
               "AverageCpc, AverageCpa, Cpa…) в валюте аккаунта. Заменяет значение по умолчанию.",
           ),
+        ...deprecatedDailyBudget(CREATE_BUDGET_HINT),
       },
     },
-    async ({ name, startDate, endDate, dailyBudgetAmount, dailyBudgetMode, biddingStrategy }) => {
+    async ({ name, startDate, endDate, weeklyBudgetAmount, biddingStrategy, ...deprecated }) => {
       try {
+        const rejected = rejectDailyBudget(deprecated, CREATE_BUDGET_HINT);
+        if (rejected) return rejected;
         if (biddingStrategy && (!biddingStrategy.Search || !biddingStrategy.Network)) {
           return fail("biddingStrategy должен содержать оба объекта стратегии: Search и Network.");
+        }
+        if (biddingStrategy && weeklyBudgetAmount !== undefined) {
+          return fail(
+            "weeklyBudgetAmount задаёт бюджет только стратегии по умолчанию (ручные ставки). " +
+              "Вместе с biddingStrategy бюджет передаётся внутри неё: WeeklySpendLimit в структуре параметров стратегии " +
+              "(для ручных ставок — HighestPosition: {WeeklySpendLimit}).",
+          );
         }
         const campaign = compact({
           Name: name,
           StartDate: startDate,
           EndDate: endDate,
-          DailyBudget: dailyBudgetAmount
-            ? { Amount: toMicros(dailyBudgetAmount), Mode: dailyBudgetMode ?? "STANDARD" }
-            : undefined,
           TextCampaign: {
-            BiddingStrategy: biddingStrategy ? strategyToMicros(biddingStrategy) : DEFAULT_BIDDING_STRATEGY,
+            BiddingStrategy: biddingStrategy ? strategyToMicros(biddingStrategy) : defaultBiddingStrategy(weeklyBudgetAmount),
           },
         });
         const result = await client.call("campaigns", "add", { Campaigns: [campaign] });
@@ -202,53 +243,28 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "Обновить кампанию",
       annotations: WRITE_UPDATE,
       description:
-        "Обновляет название, дату окончания и/или дневной бюджет кампании (campaigns/update). " +
-        "API требует передавать режим бюджета (Mode) вместе с суммой, поэтому если dailyBudgetMode не задан, " +
-        "текущий режим кампании дочитывается через campaigns/get и сохраняется — смена суммы не меняет темп открутки.",
+        "Обновляет название, дату окончания и/или минус-фразы кампании (campaigns/update). " +
+        "Бюджет здесь не меняется: у Директа он недельный и является частью стратегии — set_campaign_strategy " +
+        "(у ручных ставок это HighestPosition: {WeeklySpendLimit}, у автостратегий — WeeklySpendLimit в их структуре параметров).",
       inputSchema: {
         id: z.number().int().describe("Id кампании, которую нужно обновить."),
         name: z.string().min(1).optional().describe("Новое название кампании."),
         endDate: isoDate().optional().describe("Новая дата окончания в формате YYYY-MM-DD."),
-        dailyBudgetAmount: z
-          .number()
-          .positive()
-          .optional()
-          .describe("Дневной бюджет в валюте аккаунта."),
-        dailyBudgetMode: z
-          .enum(["STANDARD", "DISTRIBUTED"])
-          .optional()
-          .describe(
-            "Режим траты дневного бюджета: STANDARD — показы как можно быстрее, DISTRIBUTED — равномерно в течение дня. " +
-              "Если не задан, сохраняется текущий режим кампании.",
-          ),
         negativeKeywords: z
           .array(z.string())
           .optional()
           .describe("Заменяет минус-фразы кампании; пустой массив очищает их. Чтобы дописать или убрать отдельные фразы, не затирая список, — update_negative_keywords."),
+        ...deprecatedDailyBudget(UPDATE_BUDGET_HINT),
       },
     },
-    async ({ id, name, endDate, dailyBudgetAmount, dailyBudgetMode, negativeKeywords }) => {
+    async ({ id, name, endDate, negativeKeywords, ...deprecated }) => {
       try {
-        let budgetMode = dailyBudgetMode;
-        if (dailyBudgetAmount && !budgetMode) {
-          // DailyBudget requires BOTH Amount and Mode, so Mode must be sent — but
-          // defaulting it to STANDARD used to silently flip a DISTRIBUTED campaign
-          // into spend-as-fast-as-possible. Read the current mode and re-send it.
-          const current = await client.call<{ Campaigns?: { DailyBudget?: { Mode?: string } }[] }>(
-            "campaigns",
-            "get",
-            { SelectionCriteria: { Ids: [id] }, FieldNames: ["DailyBudget"] },
-          );
-          const mode = current.Campaigns?.[0]?.DailyBudget?.Mode;
-          budgetMode = mode === "DISTRIBUTED" ? "DISTRIBUTED" : "STANDARD";
-        }
+        const rejected = rejectDailyBudget(deprecated, UPDATE_BUDGET_HINT);
+        if (rejected) return rejected;
         const campaign = compact({
           Id: id,
           Name: name,
           EndDate: endDate,
-          DailyBudget: dailyBudgetAmount
-            ? { Amount: toMicros(dailyBudgetAmount), Mode: budgetMode }
-            : undefined,
           NegativeKeywords: stringList(negativeKeywords),
         });
         if (Object.keys(campaign).length === 1) {

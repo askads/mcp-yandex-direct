@@ -97,6 +97,36 @@ test("text campaign: strategy goes under TextCampaign", async () => {
   assert.equal(sent.TextCampaign.BiddingStrategy.Search.WbMaximumClicks.WeeklySpendLimit, 1_000_000_000);
 });
 
+test("manual bids: HighestPosition.WeeklySpendLimit goes to micros, previous comes back in currency", async () => {
+  const { calls, run } = harness({
+    Campaigns: [
+      {
+        Id: 7,
+        Type: "TEXT_CAMPAIGN",
+        TextCampaign: {
+          BiddingStrategy: {
+            Search: { BiddingStrategyType: "HIGHEST_POSITION", HighestPosition: { WeeklySpendLimit: 2_000_000_000 } },
+            Network: { BiddingStrategyType: "SERVING_OFF" },
+          },
+          PackageBiddingStrategy: null,
+        },
+      },
+    ],
+  });
+  const out = body(
+    await run({
+      id: 7,
+      search: { BiddingStrategyType: "HIGHEST_POSITION", HighestPosition: { WeeklySpendLimit: 3500 } },
+      network: { BiddingStrategyType: "SERVING_OFF" },
+    }),
+  );
+  assert.deepEqual(calls[1].params.Campaigns[0].TextCampaign.BiddingStrategy.Search, {
+    BiddingStrategyType: "HIGHEST_POSITION",
+    HighestPosition: { WeeklySpendLimit: 3_500_000_000 },
+  });
+  assert.equal(out.previous.Search.HighestPosition.WeeklySpendLimit, 2000);
+});
+
 test("other campaign types and package strategies are refused without a write", async () => {
   for (const getResult of [
     { Campaigns: [{ Id: 7, Type: "SMART_CAMPAIGN" }] },

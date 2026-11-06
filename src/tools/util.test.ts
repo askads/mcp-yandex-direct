@@ -183,14 +183,14 @@ test("normalizeMoney converts shared-account Funds money fields from micros", ()
   assert.equal(funds.Mode, "CAMPAIGN_FUNDS"); // non-money strings untouched
 });
 
-test("normalizeMoney converts nested DailyBudget.Amount and leaves null/non-money alone", () => {
+test("normalizeMoney leaves null, ids and unknown keys alone", () => {
   const result = normalizeMoney({
     Campaigns: [
-      { Id: 7, DailyBudget: { Amount: 1_000_000_000, Mode: "STANDARD" } },
-      { Id: 8, DailyBudget: null },
+      { Id: 7, Funds: null },
+      { Id: 8, Amount: 1_000_000 },
     ],
   });
-  assert.equal(result.Campaigns[0].DailyBudget?.Amount, 1000);
+  assert.equal(result.Campaigns[0].Funds, null);
   assert.equal(result.Campaigns[0].Id, 7);
-  assert.equal(result.Campaigns[1].DailyBudget, null);
+  assert.equal(result.Campaigns[1].Amount, 1_000_000, "Amount is not a v5 money key anymore");
 });

@@ -16,7 +16,6 @@ const CAMPAIGNS = {
       State: "ON",
       StartDate: "2026-03-14",
       Currency: "RUB",
-      DailyBudget: { Amount: 3000000000, Mode: "STANDARD" },
     },
     {
       Id: 4482915,
@@ -26,7 +25,6 @@ const CAMPAIGNS = {
       State: "ON",
       StartDate: "2026-03-14",
       Currency: "RUB",
-      DailyBudget: { Amount: 800000000, Mode: "STANDARD" },
     },
     {
       Id: 4508122,
@@ -36,7 +34,6 @@ const CAMPAIGNS = {
       State: "ON",
       StartDate: "2026-04-02",
       Currency: "RUB",
-      DailyBudget: { Amount: 5000000000, Mode: "DISTRIBUTED" },
     },
     {
       Id: 4519307,
@@ -46,7 +43,6 @@ const CAMPAIGNS = {
       State: "ON",
       StartDate: "2026-05-19",
       Currency: "RUB",
-      DailyBudget: { Amount: 1500000000, Mode: "STANDARD" },
     },
   ],
 };
