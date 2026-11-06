@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, normalizeMoney, okOrPartial, toMicros, WRITE_UPDATE } from "./util.js";
+import { fail, fromMicros, normalizeMoney, okOrPartial, toMicros, WRITE_UPDATE } from "./util.js";
 
 /**
  * Money keys inside BiddingStrategy and PriorityGoals (all ×10⁶ in the API, per
@@ -20,8 +20,20 @@ export const STRATEGY_MONEY_FIELDS = new Set([
   "Value",
 ]);
 
-/** Type-specific settings, requested via TextCampaignFieldNames / UnifiedCampaignFieldNames. */
-export const STRATEGY_READ_FIELDS = ["BiddingStrategy", "PriorityGoals", "CounterIds", "AttributionModel", "PackageBiddingStrategy"];
+/**
+ * Type-specific settings, requested via TextCampaignFieldNames / UnifiedCampaignFieldNames.
+ * Read-only: list_campaigns asks for them; set_campaign_strategy writes BiddingStrategy alone.
+ * WeeklyBudgetRollover (nillable, micros) sits next to BiddingStrategy — the part of this
+ * week's budget carried over from last week's unspent one (up to 30%).
+ */
+export const STRATEGY_READ_FIELDS = [
+  "BiddingStrategy",
+  "PriorityGoals",
+  "CounterIds",
+  "AttributionModel",
+  "PackageBiddingStrategy",
+  "WeeklyBudgetRollover",
+];
 
 /** Campaign Type → the wrapper key the strategy lives under. Other types: raw_request. */
 const WRAPPERS: Record<string, "TextCampaign" | "UnifiedCampaign"> = {
@@ -51,6 +63,7 @@ export function normalizeStrategyMoney<T>(result: T): T {
       if (!block) continue;
       normalizeMoney(block.BiddingStrategy, STRATEGY_MONEY_FIELDS);
       normalizeMoney(block.PriorityGoals, STRATEGY_MONEY_FIELDS);
+      if (typeof block.WeeklyBudgetRollover === "number") block.WeeklyBudgetRollover = fromMicros(block.WeeklyBudgetRollover);
     }
   }
   return result;

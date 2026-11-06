@@ -99,7 +99,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       description:
         "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Денежные поля (Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта. " +
           "Бюджет кампании — недельный (WeeklySpendLimit) и у ручных ставок, и у автостратегий; он лежит внутри BiddingStrategy и виден только при strategy: true (дневного бюджета DailyBudget у API больше нет). " +
-          "strategy: true добавляет блок TextCampaign/UnifiedCampaign со стратегией (BiddingStrategy), ключевыми целями (PriorityGoals), счётчиками Метрики, моделью атрибуции и пакетной стратегией — деньги в нём тоже в валюте аккаунта, а сам объект BiddingStrategy в этом виде принимает set_campaign_strategy.",
+          "strategy: true добавляет блок TextCampaign/UnifiedCampaign со стратегией (BiddingStrategy), ключевыми целями (PriorityGoals), счётчиками Метрики, моделью атрибуции, пакетной стратегией и переносом бюджета (WeeklyBudgetRollover — сколько добавлено к недельному бюджету за счёт неиспользованного на прошлой неделе, до 30%; null — перенос не применяется или данных нет) — деньги в нём тоже в валюте аккаунта, а сам объект BiddingStrategy в этом виде принимает set_campaign_strategy.",
       inputSchema: {
         ids: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         types: z.array(z.enum(CAMPAIGN_TYPES)).optional().describe("Фильтр по типам кампаний."),

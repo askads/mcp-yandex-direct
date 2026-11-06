@@ -226,6 +226,23 @@ test("list_campaigns strategy: true returns the manual-bid weekly budget in curr
   assert.equal(search.HighestPosition.WeeklySpendLimit, 3500);
 });
 
+test("list_campaigns strategy: true asks for WeeklyBudgetRollover and returns it in currency, null stays null", async () => {
+  const { calls, tools } = harness(registerCampaignTools, {
+    callResult: {
+      Campaigns: [
+        { Id: 1, TextCampaign: { BiddingStrategy: {}, WeeklyBudgetRollover: 3_000_000_000 } },
+        { Id: 2, UnifiedCampaign: { BiddingStrategy: {}, WeeklyBudgetRollover: null } },
+      ],
+    },
+  });
+  const res = await tools.list_campaigns({ strategy: true });
+  assert.ok(calls[0].params.TextCampaignFieldNames.includes("WeeklyBudgetRollover"));
+  assert.ok(calls[0].params.UnifiedCampaignFieldNames.includes("WeeklyBudgetRollover"));
+  const [text, unified] = JSON.parse(res.content[0].text).Campaigns;
+  assert.equal(text.TextCampaign.WeeklyBudgetRollover, 3000);
+  assert.equal(unified.UnifiedCampaign.WeeklyBudgetRollover, null);
+});
+
 test("create_text_campaign converts money inside an explicit biddingStrategy", async () => {
   const { calls, tools } = harness(registerCampaignTools, { callResult: { AddResults: [{ Id: 1 }] } });
   await tools.create_text_campaign({

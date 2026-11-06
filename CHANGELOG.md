@@ -30,6 +30,9 @@
   смены бюджета, увидев «успех».
 - `list_campaigns`: `DailyBudget` убран из полей по умолчанию и из `fieldNames`. Недельный бюджет
   и ручных ставок, и автостратегий виден в `BiddingStrategy` при `strategy: true`.
+- `list_campaigns`: при `strategy: true` в блоке `TextCampaign` / `UnifiedCampaign` приходит
+  `WeeklyBudgetRollover` — сколько добавлено к недельному бюджету за счёт неиспользованного на
+  прошлой неделе (Директ переносит до 30 %), в валюте аккаунта; `null` остаётся `null`.
 - `set_campaign_strategy`: описание называет `HighestPosition: {WeeklySpendLimit}` как место
   недельного бюджета ручных ставок (структура из `update-unified-campaign`; в доке TextCampaign
   её пока нет). Конвертация денег в обе стороны уже покрывала `WeeklySpendLimit` в любой
