@@ -19,9 +19,9 @@
 - `name` — **обязательно**. Название кампании.
 - `startDate` — **обязательно**. Дата начала в формате YYYY-MM-DD.
 - `endDate` — **необязательно**. Дата окончания в формате YYYY-MM-DD.
-- `weeklyBudgetAmount` — **необязательно**. Недельный бюджет ручных ставок в валюте аккаунта (`HighestPosition.WeeklySpendLimit` стратегии по умолчанию). Только без `biddingStrategy` — у явной стратегии бюджет задаётся внутри неё. Минимум — `get_dictionaries` → `Currencies`.
-- `biddingStrategy` — **необязательно**. Полный объект BiddingStrategy {Search, Network} в формате API, деньги (WeeklySpendLimit, BidCeiling, AverageCpc, AverageCpa, Cpa…) в валюте аккаунта. Заменяет значение по умолчанию.
-- `dailyBudgetAmount`, `dailyBudgetMode` — **устарело**. Дневного бюджета в Директе больше нет (с 30.11.2026); вызов с любым из них отклоняется до запроса с подсказкой про `weeklyBudgetAmount`. Параметры оставлены в схеме намеренно: иначе клиент с закешированным списком инструментов передал бы их, SDK молча отбросил бы, и кампания создалась бы без бюджета.
+- `weeklyBudgetAmount` — **устарело** (было в 1.13.0). У ручных ставок текстовой кампании бюджета в API нет — вызов отклоняется до запроса с подсказкой про автостратегию.
+- `biddingStrategy` — **необязательно**. Полный объект BiddingStrategy {Search, Network} в формате API, деньги (WeeklySpendLimit, BidCeiling, AverageCpc, AverageCpa, Cpa…) в валюте аккаунта. Заменяет значение по умолчанию. Недельный бюджет задаётся только здесь, в автостратегии: например, `{"Search": {"BiddingStrategyType": "WB_MAXIMUM_CLICKS", "WbMaximumClicks": {"WeeklySpendLimit": 5000}}, "Network": {"BiddingStrategyType": "SERVING_OFF"}}`. Минимум — `get_dictionaries` → `Currencies`.
+- `dailyBudgetAmount`, `dailyBudgetMode` — **устарело**. Дневного бюджета в Директе больше нет (с 30.11.2026); вызов с любым из них отклоняется до запроса с подсказкой про бюджет автостратегии. Параметры оставлены в схеме намеренно: иначе клиент с закешированным списком инструментов передал бы их, SDK молча отбросил бы, и кампания создалась бы без бюджета.
 
 ## Что вернёт
 
@@ -37,7 +37,7 @@
 
 ## Возможные ошибки и ограничения
 
-Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF), их недельный бюджет — `weeklyBudgetAmount`; чтобы включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}, бюджет тогда внутри него (WeeklySpendLimit в структуре параметров стратегии). `weeklyBudgetAmount` вместе с `biddingStrategy` отклоняется до запроса.
+Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF) — без бюджета: у ручных ставок текстовой кампании его в API нет (`HighestPosition` даёт ошибку 8000). Чтобы ограничить расход, включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}, недельный бюджет внутри него. Созданную кампанию API Директа возвращает как ЕПК (`UNIFIED_CAMPAIGN`).
 
 Дневного бюджета (`DailyBudget`) у Директа больше нет: с 30.11.2026 бюджет недельный и является частью стратегии.
 

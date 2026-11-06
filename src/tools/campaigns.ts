@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, isoDate, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, stringList, toMicros, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, isoDate, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, stringList, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
 import { normalizeStrategyMoney, STRATEGY_READ_FIELDS, strategyToMicros } from "./strategy.js";
 
 // Types accepted by campaigns.get SelectionCriteria.Types. UNIFIED_CAMPAIGN is the
@@ -26,8 +26,8 @@ const CAMPAIGN_STATUSES = ["ACCEPTED", "DRAFT", "MODERATION", "REJECTED"] as con
 // campaigns.get FieldNames as v501 lists them (checked live 2026-10-30). Type-specific
 // settings (strategy, TextCampaign.*, UnifiedCampaign.*) are separate *FieldNames params,
 // not values here — an enum keeps the model from sending them and drawing code 8000.
-// DailyBudget is gone: Yandex retires it on 2026-11-30 (manual-bid campaigns moved to the
-// weekly budget, HighestPosition.WeeklySpendLimit inside BiddingStrategy).
+// DailyBudget is gone: Yandex retires it on 2026-11-30; the budget is the weekly
+// WeeklySpendLimit inside BiddingStrategy.
 const CAMPAIGN_FIELDS = [
   "BlockedIps", "ExcludedSites", "Currency", "Notification", "EndDate", "Funds",
   "ClientInfo", "Id", "Name", "NegativeKeywords", "RepresentedBy", "StartDate", "CreateTime",
@@ -45,14 +45,6 @@ const DEFAULT_FIELDS = [
   "Currency",
 ];
 
-/**
- * Manual search bids with the network disabled. HIGHEST_POSITION is the
- * manual-bid BiddingStrategyType (current in API v5, not a removed legacy
- * value) and SERVING_OFF keeps a new campaign from spending on the network
- * unexpectedly. The weekly budget of manual bids lives inside the strategy
- * (HighestPosition.WeeklySpendLimit, micros). Pass an explicit biddingStrategy
- * to use an auto-strategy.
- */
 /**
  * The retired DailyBudget parameters stay in the schema on purpose: the MCP SDK strips
  * arguments the schema does not know, so a client with a cached tools/list (ChatGPT keeps
@@ -75,20 +67,23 @@ function rejectDailyBudget(args: { dailyBudgetAmount?: number; dailyBudgetMode?:
   );
 }
 
-const CREATE_BUDGET_HINT =
-  "Недельный бюджет ручных ставок — weeklyBudgetAmount; у явной biddingStrategy — WeeklySpendLimit внутри неё.";
+const TEXT_BUDGET_HINT =
+  "У текстовой кампании недельный бюджет есть только у автостратегий: передать biddingStrategy, например " +
+  "{Search: {BiddingStrategyType: \"WB_MAXIMUM_CLICKS\", WbMaximumClicks: {WeeklySpendLimit: <сумма>}}, " +
+  "Network: {BiddingStrategyType: \"SERVING_OFF\"}}. У ручных ставок (HIGHEST_POSITION) TextCampaign бюджета нет.";
+const CREATE_BUDGET_HINT = TEXT_BUDGET_HINT;
 const UPDATE_BUDGET_HINT =
-  "Менять бюджет — set_campaign_strategy (ручные ставки — HighestPosition: {WeeklySpendLimit}, автостратегии — WeeklySpendLimit в их структуре параметров).";
+  "Менять бюджет — set_campaign_strategy (WeeklySpendLimit в структуре параметров автостратегии; у ручных ставок — HighestPosition: {WeeklySpendLimit}, только у ЕПК).";
 
-function defaultBiddingStrategy(weeklyBudgetAmount?: number) {
-  return {
-    Search: compact({
-      BiddingStrategyType: "HIGHEST_POSITION",
-      HighestPosition: weeklyBudgetAmount ? { WeeklySpendLimit: toMicros(weeklyBudgetAmount) } : undefined,
-    }),
-    Network: { BiddingStrategyType: "SERVING_OFF" },
-  };
-}
+/**
+ * Manual search bids with the network disabled; SERVING_OFF keeps a new campaign from
+ * spending on the network unexpectedly. TextCampaign manual bids carry no budget: the API
+ * rejects HighestPosition there (8000, checked live 2026-11-07) — it exists only in ЕПК.
+ */
+const DEFAULT_BIDDING_STRATEGY = {
+  Search: { BiddingStrategyType: "HIGHEST_POSITION" },
+  Network: { BiddingStrategyType: "SERVING_OFF" },
+};
 
 export function registerCampaignTools(server: McpServer, client: YandexDirectClient): void {
   server.registerTool(
@@ -159,20 +154,16 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "Создать текстовую кампанию",
       annotations: WRITE_CREATE,
       description:
-        "Создаёт кампанию TextCampaign (текстово-графические объявления). Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF), их недельный бюджет — weeklyBudgetAmount; " +
-          "чтобы включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}, бюджет тогда внутри него (WeeklySpendLimit в структуре параметров стратегии). Дневного бюджета у Директа больше нет: бюджет недельный и часть стратегии.",
+        "Создаёт кампанию TextCampaign (текстово-графические объявления). Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF) — у ручных ставок текстовой кампании бюджета в API нет. " +
+          "Чтобы ограничить расход, включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}, недельный бюджет внутри него (WeeklySpendLimit в структуре параметров автостратегии). Дневного бюджета у Директа больше нет.",
       inputSchema: {
         name: z.string().min(1).describe("Название кампании."),
         startDate: isoDate().describe("Дата начала в формате YYYY-MM-DD."),
         endDate: isoDate().optional().describe("Дата окончания в формате YYYY-MM-DD."),
         weeklyBudgetAmount: z
           .number()
-          .positive()
           .optional()
-          .describe(
-            "Недельный бюджет ручных ставок в валюте аккаунта (HighestPosition.WeeklySpendLimit стратегии по умолчанию). " +
-              "Только без biddingStrategy — у явной стратегии бюджет задаётся внутри неё. Минимум — get_dictionaries → Currencies.",
-          ),
+          .describe(`Устарело: вызов с этим параметром отклоняется. ${TEXT_BUDGET_HINT}`),
         biddingStrategy: z
           .record(z.any())
           .optional()
@@ -187,22 +178,19 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       try {
         const rejected = rejectDailyBudget(deprecated, CREATE_BUDGET_HINT);
         if (rejected) return rejected;
+        // Kept in the schema for clients with a cached tools/list (1.13.0 offered it): refuse, don't drop.
+        if (weeklyBudgetAmount !== undefined) {
+          return fail(`weeklyBudgetAmount не поддерживается. ${TEXT_BUDGET_HINT}`);
+        }
         if (biddingStrategy && (!biddingStrategy.Search || !biddingStrategy.Network)) {
           return fail("biddingStrategy должен содержать оба объекта стратегии: Search и Network.");
-        }
-        if (biddingStrategy && weeklyBudgetAmount !== undefined) {
-          return fail(
-            "weeklyBudgetAmount задаёт бюджет только стратегии по умолчанию (ручные ставки). " +
-              "Вместе с biddingStrategy бюджет передаётся внутри неё: WeeklySpendLimit в структуре параметров стратегии " +
-              "(для ручных ставок — HighestPosition: {WeeklySpendLimit}).",
-          );
         }
         const campaign = compact({
           Name: name,
           StartDate: startDate,
           EndDate: endDate,
           TextCampaign: {
-            BiddingStrategy: biddingStrategy ? strategyToMicros(biddingStrategy) : defaultBiddingStrategy(weeklyBudgetAmount),
+            BiddingStrategy: biddingStrategy ? strategyToMicros(biddingStrategy) : DEFAULT_BIDDING_STRATEGY,
           },
         });
         const result = await client.call("campaigns", "add", { Campaigns: [campaign] });
@@ -245,7 +233,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       description:
         "Обновляет название, дату окончания и/или минус-фразы кампании (campaigns/update). " +
         "Бюджет здесь не меняется: у Директа он недельный и является частью стратегии — set_campaign_strategy " +
-        "(у ручных ставок это HighestPosition: {WeeklySpendLimit}, у автостратегий — WeeklySpendLimit в их структуре параметров).",
+        "(WeeklySpendLimit в структуре параметров автостратегии; у ручных ставок — HighestPosition: {WeeklySpendLimit}, только у ЕПК).",
       inputSchema: {
         id: z.number().int().describe("Id кампании, которую нужно обновить."),
         name: z.string().min(1).optional().describe("Новое название кампании."),

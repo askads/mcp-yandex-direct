@@ -2,7 +2,7 @@ name: Demo account e2e
 
 # Read + write round-trip against the production API on the dedicated demo account
 # askads-demo (empty, unfunded): src/integration.ts refuses to write unless clients.get
-# answers with E2E_ACCOUNT_LOGIN, creates one draft campaign and deletes it. Runs on
+# answers with E2E_ACCOUNT_LOGIN, creates a draft campaign of each type and deletes it. Runs on
 # push to main and daily; never on pull_request, so the token secret is not exposed
 # to PRs or forks.
 on:
@@ -32,7 +32,7 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: npm ci
-      - name: E2E check on askads-demo (reads + create/read/delete of a draft campaign)
+      - name: E2E check on askads-demo (reads + create/read/delete of draft campaigns)
         run: npm run integration
         env:
           E2E_ACCOUNT_LOGIN: askads-demo

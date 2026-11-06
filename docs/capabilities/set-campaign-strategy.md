@@ -14,7 +14,7 @@
 
 Когда меняется что-то в стратегии: бюджет (`WeeklySpendLimit`), целевая цена конверсии (`AverageCpa`, `Cpa`), ограничение ставки (`BidCeiling`), доля расходов (`Crr`) или сам тип стратегии.
 
-Бюджет кампании — недельный и задаётся только здесь: у ручных ставок — `{"BiddingStrategyType": "HIGHEST_POSITION", "HighestPosition": {"WeeklySpendLimit": 5000}}`, у автостратегий — `WeeklySpendLimit` в их структуре параметров. Дневного бюджета (`DailyBudget`) у Директа больше нет (с 30.11.2026).
+Бюджет кампании — недельный и задаётся только здесь: у автостратегий — `WeeklySpendLimit` в их структуре параметров, у ручных ставок ЕПК — `{"BiddingStrategyType": "HIGHEST_POSITION", "HighestPosition": {"WeeklySpendLimit": 5000}}`. У ручных ставок текстовой кампании бюджета нет (API отвечает 8000 на `HighestPosition`). Дневного бюджета (`DailyBudget`) у Директа больше нет (с 30.11.2026).
 
 ## Что нужно передать
 

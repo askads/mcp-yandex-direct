@@ -246,9 +246,9 @@ claude mcp add --transport stdio --scope user yandex-direct -- npx -y mcp-yandex
 | `YANDEX_DIRECT_TIMEOUT_MS` | Таймаут запроса; по умолчанию 60 000 мс. |
 | `YANDEX_DIRECT_MAX_RETRIES` | Число повторов при временных ошибках; по умолчанию 3. |
 
-Получить готовый токен для `YANDEX_DIRECT_TOKEN` можно по ссылке, войдя под аккаунтом с доступом к нужному кабинету:
+Получить готовый токен для `YANDEX_DIRECT_TOKEN` можно по ссылке. Яндекс покажет, под каким аккаунтом выдаётся доступ, — смените его, если это не аккаунт с нужным кабинетом:
 
-[**Получить токен Яндекс Директа**](https://oauth.yandex.ru/authorize?response_type=token&client_id=c48790e11f0e48c588d2cd2d1b4bb92d)
+[**Получить токен Яндекс Директа**](https://oauth.yandex.ru/authorize?response_type=token&client_id=c48790e11f0e48c588d2cd2d1b4bb92d&force_confirm=yes)
 
 Не публикуйте токен в чатах, репозиториях и скриншотах: он даёт доступ к рекламному кабинету, включая действия, которые могут повлиять на бюджет.
 

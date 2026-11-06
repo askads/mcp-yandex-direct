@@ -34,7 +34,7 @@ test("create_text_campaign: a cached-schema client sending dailyBudgetAmount is 
     const { calls, callTool } = await connected();
     const res = await callTool("create_text_campaign", { name: "C", startDate: "2026-01-01", ...args });
     assert.equal(res.isError, true, JSON.stringify(args));
-    assert.match(res.content[0].text, /weeklyBudgetAmount/);
+    assert.match(res.content[0].text, /WB_MAXIMUM_CLICKS/);
     assert.equal(calls.length, 0, "no campaign without its budget");
   }
 });
@@ -49,13 +49,10 @@ test("update_campaign: a cached-schema client sending the daily budget is refuse
   }
 });
 
-test("create_text_campaign: weeklyBudgetAmount survives the SDK and lands in HighestPosition", async () => {
+test("create_text_campaign: a cached-schema client sending weeklyBudgetAmount (1.13.0) is refused, no API call", async () => {
   const { calls, callTool } = await connected();
   const res = await callTool("create_text_campaign", { name: "C", startDate: "2026-01-01", weeklyBudgetAmount: 500 });
-  assert.equal(res.isError, undefined);
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].params.Campaigns[0].TextCampaign.BiddingStrategy.Search, {
-    BiddingStrategyType: "HIGHEST_POSITION",
-    HighestPosition: { WeeklySpendLimit: 500_000_000 },
-  });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /WB_MAXIMUM_CLICKS/);
+  assert.equal(calls.length, 0);
 });

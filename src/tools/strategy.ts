@@ -92,8 +92,9 @@ export function registerStrategyTools(server: McpServer, client: YandexDirectCli
         "AverageCpa, Cpa, SpendLimit, MinimumExplorationBudget (Crr и BudgetIncreasePercent — проценты, не деньги); " +
         "(3) возвращает previous — стратегию до изменения — рядом с UpdateResults. Больше ничего не дописывается " +
         "и не проверяется: правила совместимости проверяет API и отвечает ошибкой по объекту.\n" +
-        "Бюджет кампании — недельный и задаётся только здесь: у ручных ставок — {BiddingStrategyType: HIGHEST_POSITION, " +
-        "HighestPosition: {WeeklySpendLimit}}, у автостратегий — WeeklySpendLimit в их структуре параметров. " +
+        "Бюджет кампании — недельный и задаётся только здесь: у автостратегий — WeeklySpendLimit в их структуре параметров, " +
+        "у ручных ставок ЕПК — {BiddingStrategyType: HIGHEST_POSITION, HighestPosition: {WeeklySpendLimit}}; у ручных ставок " +
+        "текстовой кампании бюджета нет (API отвечает 8000 на HighestPosition). " +
         "Дневного бюджета (DailyBudget) у Директа больше нет.\n" +
         "Передаются обе стороны, search и network. Внутри структуры параметров непереданные поля той же стратегии " +
         "сохраняют текущие значения (проверено вживую на ЕПК). PriorityGoals, CounterIds и AttributionModel " +
