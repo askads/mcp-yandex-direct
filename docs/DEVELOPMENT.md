@@ -47,12 +47,14 @@ YANDEX_DIRECT_SANDBOX=true YANDEX_DIRECT_TOKEN=ваш_токен npm run smoke
 - чтение — `clients.get` (логин, валюта, квота Units), `campaigns.get` через v501,
   баланс через Live v4 `AccountManagement` (как `get_balance`), справочник валют,
   отчёт `ACCOUNT_PERFORMANCE_REPORT` за вчера через Reports (пустой результат — норма);
-- запись — по черновику каждого типа, который создают инструменты (ЕПК
-  `UnifiedCampaign` и `TextCampaign`), с именем `ci-e2e-<timestamp>`, ручная
-  стратегия на поиске (`HIGHEST_POSITION`, `WeeklySpendLimit` = минимальный недельный
-  бюджет валюты кабинета из `dictionaries.get` → `Currencies` → `MinimumWeeklySpendLimit`),
-  сети выключены; затем `campaigns.get` каждой кампании (сверка `WeeklySpendLimit`) и
-  `campaigns.delete` — удаление идёт даже при упавшей проверке. Групп и объявлений
+- запись — по черновику обоих типов, чью стратегию задают инструменты, с именем
+  `ci-e2e-<timestamp>` и выключенными сетями: ЕПК `UnifiedCampaign` на ручных ставках
+  (`HIGHEST_POSITION`, `HighestPosition.WeeklySpendLimit`) и `TextCampaign` на
+  `WB_MAXIMUM_CLICKS` (`WbMaximumClicks.WeeklySpendLimit`) — у ручных ставок текстовой
+  кампании бюджета в API нет, `HighestPosition` там даёт 8000. Бюджет — минимальный
+  недельный для валюты кабинета (`dictionaries.get` → `Currencies` →
+  `MinimumWeeklySpendLimit`). Затем `campaigns.get` каждой кампании (сверка
+  `WeeklySpendLimit`) и `campaigns.delete` — удаление идёт даже при упавшей проверке. Групп и объявлений
   нет, крутиться и тратить кампания не может.
 
 Защита от записи в чужой кабинет — по логину: обязательная переменная

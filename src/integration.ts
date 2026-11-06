@@ -2,8 +2,9 @@
 /**
  * E2E check against the production API on the dedicated demo account: reads along the
  * paths the tools use (clients, campaigns via v501, Live v4 balance, dictionaries,
- * Reports), then a write round-trip for each campaign type the tools create (Единая
- * перформанс-кампания and TextCampaign) — add a draft, read it back, delete it. No ad groups or ads are ever created, so the campaign cannot serve
+ * Reports), then a write round-trip for each campaign type the tools create — a draft
+ * Единая перформанс-кампания on manual bids (HighestPosition) and a draft TextCampaign on
+ * WB_MAXIMUM_CLICKS (TextCampaign manual bids have no budget) — add, read back, delete. No ad groups or ads are ever created, so the campaign cannot serve
  * or spend. Writes happen only after `clients.get` answered with the login from
  * E2E_ACCOUNT_LOGIN; any other account, a missing login or the sandbox refuses.
  */
@@ -25,7 +26,7 @@ interface ObjectResult {
 
 interface Strategy {
   BiddingStrategyType?: string;
-  HighestPosition?: { WeeklySpendLimit?: number };
+  [params: string]: unknown;
 }
 
 interface Campaign {
@@ -43,7 +44,10 @@ interface TypeBlock {
 }
 
 type CampaignKind = "UnifiedCampaign" | "TextCampaign";
-const TYPE_OF: Record<CampaignKind, string> = { UnifiedCampaign: "UNIFIED_CAMPAIGN", TextCampaign: "TEXT_CAMPAIGN" };
+const PLAN: Record<CampaignKind, { type: string; strategy: string; params: string }> = {
+  UnifiedCampaign: { type: "UNIFIED_CAMPAIGN", strategy: "HIGHEST_POSITION", params: "HighestPosition" },
+  TextCampaign: { type: "TEXT_CAMPAIGN", strategy: "WB_MAXIMUM_CLICKS", params: "WbMaximumClicks" },
+};
 
 const passed: string[] = [];
 
@@ -88,6 +92,7 @@ async function deleteCampaigns(client: YandexDirectClient, ids: number[]): Promi
 
 async function roundTrip(client: YandexDirectClient, kind: CampaignKind, weeklyMicros: number): Promise<void> {
   const name = e2eCampaignName();
+  const plan = PLAN[kind];
   const add = await client.call<{ AddResults?: ObjectResult[] }>("campaigns", "add", {
     Campaigns: [
       {
@@ -95,7 +100,7 @@ async function roundTrip(client: YandexDirectClient, kind: CampaignKind, weeklyM
         StartDate: startDate(),
         [kind]: {
           BiddingStrategy: {
-            Search: { BiddingStrategyType: "HIGHEST_POSITION", HighestPosition: { WeeklySpendLimit: weeklyMicros } },
+            Search: { BiddingStrategyType: plan.strategy, [plan.params]: { WeeklySpendLimit: weeklyMicros } },
             Network: { BiddingStrategyType: "SERVING_OFF" },
           },
         },
@@ -103,8 +108,8 @@ async function roundTrip(client: YandexDirectClient, kind: CampaignKind, weeklyM
     ],
   });
   const created = add.AddResults?.[0];
-  if (!created?.Id) throw new Error(`campaigns.add (${kind}): ${firstError(created)}`);
-  pass(`campaigns.add (v501, ${kind}): "${name}" → ${created.Id}`);
+  if (!created?.Id) throw new Error(`campaigns.add (${kind}, ${plan.strategy}): ${firstError(created)}`);
+  pass(`campaigns.add (v501, ${kind}, ${plan.strategy}): "${name}" → ${created.Id}`);
 
   let verifyError: unknown;
   try {
@@ -116,11 +121,12 @@ async function roundTrip(client: YandexDirectClient, kind: CampaignKind, weeklyM
     const campaign = got.Campaigns?.[0];
     if (!campaign) throw new Error(`campaigns.get: campaign ${created.Id} not returned`);
     expectEqual("Name", campaign.Name, name);
-    expectEqual("Type", campaign.Type, TYPE_OF[kind]);
+    expectEqual("Type", campaign.Type, plan.type);
     const block = campaign[kind];
     const strategy = block?.BiddingStrategy;
-    expectEqual("Search.BiddingStrategyType", strategy?.Search?.BiddingStrategyType, "HIGHEST_POSITION");
-    expectEqual("Search.HighestPosition.WeeklySpendLimit", strategy?.Search?.HighestPosition?.WeeklySpendLimit, weeklyMicros);
+    expectEqual("Search.BiddingStrategyType", strategy?.Search?.BiddingStrategyType, plan.strategy);
+    const search = strategy?.Search?.[plan.params] as { WeeklySpendLimit?: number } | undefined;
+    expectEqual(`Search.${plan.params}.WeeklySpendLimit`, search?.WeeklySpendLimit, weeklyMicros);
     expectEqual("Network.BiddingStrategyType", strategy?.Network?.BiddingStrategyType, "SERVING_OFF");
     pass(
       `campaigns.get: ${campaign.Type}, State ${campaign.State}, WeeklySpendLimit ${weeklyMicros}, ` +
