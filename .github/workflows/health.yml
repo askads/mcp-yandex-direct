@@ -1,8 +1,10 @@
-name: Sandbox health check
+name: Demo account e2e
 
-# Read + write round-trip against the API sandbox (synthetic data, no real money).
-# Runs on push to main and daily; never on pull_request, so the token secret is
-# not exposed to PRs or forks.
+# Read + write round-trip against the production API on the dedicated demo account
+# askads-demo (empty, unfunded): src/integration.ts refuses to write unless clients.get
+# answers with E2E_ACCOUNT_LOGIN, creates one draft campaign and deletes it. Runs on
+# push to main and daily; never on pull_request, so the token secret is not exposed
+# to PRs or forks.
 on:
   schedule:
     - cron: "0 6 * * *"
@@ -13,8 +15,10 @@ on:
 permissions:
   contents: read
 
+# One account, one run at a time: a second run (any trigger, any ref) waits instead of
+# racing the first one's cleanup and campaign.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
@@ -28,8 +32,8 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: npm ci
-      - name: Sandbox integration check (read + write round-trip)
+      - name: E2E check on askads-demo (reads + create/read/delete of a draft campaign)
         run: npm run integration
         env:
-          YANDEX_DIRECT_SANDBOX: "true"
-          YANDEX_DIRECT_TOKEN: ${{ secrets.YANDEX_DIRECT_TOKEN }}
+          E2E_ACCOUNT_LOGIN: askads-demo
+          YANDEX_DIRECT_TOKEN: ${{ secrets.YANDEX_DIRECT_DEMO_TOKEN }}
