@@ -38,6 +38,38 @@ YANDEX_DIRECT_TOKEN=ваш_токен npm run smoke
 YANDEX_DIRECT_SANDBOX=true YANDEX_DIRECT_TOKEN=ваш_токен npm run smoke
 ```
 
+## E2E-проверка на демо-кабинете (вживую, чтение и запись)
+
+`npm run integration` ходит в **боевой** API (не в песочницу: она живёт в v5, а
+`campaigns` на проде — в v501, см. `src/client.ts`) и проверяет путь, которым идут
+инструменты:
+
+- чтение — `clients.get` (логин, валюта, квота Units), `campaigns.get` через v501,
+  баланс через Live v4 `AccountManagement` (как `get_balance`), справочник валют,
+  отчёт `ACCOUNT_PERFORMANCE_REPORT` за вчера через Reports (пустой результат — норма);
+- запись — черновик ЕПК `UnifiedCampaign` с именем `ci-e2e-<timestamp>`, ручная
+  стратегия на поиске (`HIGHEST_POSITION`, `WeeklySpendLimit` = минимальный недельный
+  бюджет валюты кабинета из `dictionaries.get` → `Currencies` → `MinimumWeeklySpendLimit`),
+  сети выключены; затем `campaigns.get` этой кампании (сверка `WeeklySpendLimit`) и
+  `campaigns.delete` — удаление идёт даже при упавшей проверке. Групп и объявлений
+  нет, крутиться и тратить кампания не может.
+
+Защита от записи в чужой кабинет — по логину: обязательная переменная
+`E2E_ACCOUNT_LOGIN`, и до любой записи скрипт сверяет её с `Login` из `clients.get`
+(без учёта регистра). Не совпало, пусто или задан `YANDEX_DIRECT_SANDBOX=true` —
+выход с кодом 1 без единой записи. В начале прогона удаляются только кампании
+`ci-e2e-<timestamp>` старше часа — остатки упавших прогонов.
+
+```bash
+E2E_ACCOUNT_LOGIN=askads-demo YANDEX_DIRECT_TOKEN=токен_askads-demo npm run integration
+```
+
+В CI (`.github/workflows/health.yml`, «Demo account e2e») логин зашит как
+`askads-demo`, токен берётся из секрета репозитория `YANDEX_DIRECT_DEMO_TOKEN` —
+туда кладут токен **только** кабинета askads-demo (пустой, не пополнен). Чистые
+функции защиты (сверка логина, фильтр подчистки, выбор минимального бюджета) —
+`src/integrationGuard.ts`, покрыты юнит-тестами.
+
 ## Демо-GIF в README
 
 `docs/demo.gif` — запись настоящей MCP-сессии: `docs/demo/run.mjs` поднимает
@@ -57,6 +89,9 @@ npm run build && vhs docs/demo.tape   # требуется vhs: brew install vhs
 ## CI
 
 GitHub Actions прогоняет `typecheck` + `build` + `test` на Node 20/22/24 при push и pull request.
+Отдельный workflow «Demo account e2e» гоняет `npm run integration` на кабинете askads-demo
+при push в main, раз в сутки и по кнопке — не на pull request, чтобы секрет не утёк в форки;
+два прогона одновременно не идут (`concurrency`).
 
 ## Телеметрия использования
 

@@ -18,6 +18,7 @@
     "dist",
     "src/**/*.test.ts",
     "src/smoke.ts",
-    "src/integration.ts"
+    "src/integration.ts",
+    "src/integrationGuard.ts"
   ]
 }

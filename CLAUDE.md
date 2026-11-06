@@ -11,6 +11,8 @@ npm test           # unit tests, no network
 npm run typecheck  # types for src + tests
 npm run build      # emit dist/
 npm run smoke      # live READ-ONLY calls (needs YANDEX_DIRECT_TOKEN)
+npm run integration  # live e2e on the demo account: reads + create/read/delete of a draft ЕПК
+                     # (needs E2E_ACCOUNT_LOGIN=askads-demo + that account's YANDEX_DIRECT_TOKEN)
 ```
 
 More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOLS.md](docs/TOOLS.md).
@@ -102,8 +104,12 @@ Before changing the tool registry, read [the MCP capability documentation contra
 
 ## Safety
 
-- Tools hit a **real ad account with real money.** `smoke` is read-only by design;
-  never put a production token in CI.
+- Tools hit a **real ad account with real money.** `smoke` is read-only by design.
+  `integration` (CI workflow "Demo account e2e", `.github/workflows/health.yml`) writes — one
+  draft campaign, deleted in the same run — but only to the account named in
+  `E2E_ACCOUNT_LOGIN` after `clients.get` confirmed the login (`src/integrationGuard.ts`);
+  the CI secret `YANDEX_DIRECT_DEMO_TOKEN` holds the token of the empty, unfunded
+  `askads-demo` account and nothing else. Never put a customer's token in CI.
 
 ## Releasing
 
