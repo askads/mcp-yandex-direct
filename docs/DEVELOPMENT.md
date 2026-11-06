@@ -47,10 +47,11 @@ YANDEX_DIRECT_SANDBOX=true YANDEX_DIRECT_TOKEN=ваш_токен npm run smoke
 - чтение — `clients.get` (логин, валюта, квота Units), `campaigns.get` через v501,
   баланс через Live v4 `AccountManagement` (как `get_balance`), справочник валют,
   отчёт `ACCOUNT_PERFORMANCE_REPORT` за вчера через Reports (пустой результат — норма);
-- запись — черновик ЕПК `UnifiedCampaign` с именем `ci-e2e-<timestamp>`, ручная
+- запись — по черновику каждого типа, который создают инструменты (ЕПК
+  `UnifiedCampaign` и `TextCampaign`), с именем `ci-e2e-<timestamp>`, ручная
   стратегия на поиске (`HIGHEST_POSITION`, `WeeklySpendLimit` = минимальный недельный
   бюджет валюты кабинета из `dictionaries.get` → `Currencies` → `MinimumWeeklySpendLimit`),
-  сети выключены; затем `campaigns.get` этой кампании (сверка `WeeklySpendLimit`) и
+  сети выключены; затем `campaigns.get` каждой кампании (сверка `WeeklySpendLimit`) и
   `campaigns.delete` — удаление идёт даже при упавшей проверке. Групп и объявлений
   нет, крутиться и тратить кампания не может.
 
@@ -66,7 +67,9 @@ E2E_ACCOUNT_LOGIN=askads-demo YANDEX_DIRECT_TOKEN=токен_askads-demo npm run
 
 В CI (`.github/workflows/health.yml`, «Demo account e2e») логин зашит как
 `askads-demo`, токен берётся из секрета репозитория `YANDEX_DIRECT_DEMO_TOKEN` —
-туда кладут токен **только** кабинета askads-demo (пустой, не пополнен). Чистые
+туда кладут токен **только** кабинета askads-demo (пустой, не пополнен). Выпускать его
+ссылкой `https://oauth.yandex.ru/authorize?response_type=token&client_id=c48790e11f0e48c588d2cd2d1b4bb92d&force_confirm=yes&login_hint=askads-demo`:
+без `force_confirm` Яндекс молча выдаст токен аккаунта, под которым открыт браузер. Чистые
 функции защиты (сверка логина, фильтр подчистки, выбор минимального бюджета) —
 `src/integrationGuard.ts`, покрыты юнит-тестами.
 

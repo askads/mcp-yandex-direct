@@ -2,8 +2,8 @@
 /**
  * E2E check against the production API on the dedicated demo account: reads along the
  * paths the tools use (clients, campaigns via v501, Live v4 balance, dictionaries,
- * Reports), then a write round-trip — add a draft Единая перформанс-кампания, read it
- * back, delete it. No ad groups or ads are ever created, so the campaign cannot serve
+ * Reports), then a write round-trip for each campaign type the tools create (Единая
+ * перформанс-кампания and TextCampaign) — add a draft, read it back, delete it. No ad groups or ads are ever created, so the campaign cannot serve
  * or spend. Writes happen only after `clients.get` answered with the login from
  * E2E_ACCOUNT_LOGIN; any other account, a missing login or the sandbox refuses.
  */
@@ -33,11 +33,17 @@ interface Campaign {
   Name?: string;
   Type?: string;
   State?: string;
-  UnifiedCampaign?: {
-    BiddingStrategy?: { Search?: Strategy; Network?: Strategy };
-    WeeklyBudgetRollover?: number | null;
-  };
+  UnifiedCampaign?: TypeBlock;
+  TextCampaign?: TypeBlock;
 }
+
+interface TypeBlock {
+  BiddingStrategy?: { Search?: Strategy; Network?: Strategy };
+  WeeklyBudgetRollover?: number | null;
+}
+
+type CampaignKind = "UnifiedCampaign" | "TextCampaign";
+const TYPE_OF: Record<CampaignKind, string> = { UnifiedCampaign: "UNIFIED_CAMPAIGN", TextCampaign: "TEXT_CAMPAIGN" };
 
 const passed: string[] = [];
 
@@ -78,6 +84,61 @@ async function deleteCampaigns(client: YandexDirectClient, ids: number[]): Promi
   });
   const errors = (res.DeleteResults ?? []).flatMap((r, i) => (r.Errors?.length ? [`${ids[i]}: ${firstError(r)}`] : []));
   if (errors.length) throw new Error(`campaigns.delete: ${errors.join("; ")}`);
+}
+
+async function roundTrip(client: YandexDirectClient, kind: CampaignKind, weeklyMicros: number): Promise<void> {
+  const name = e2eCampaignName();
+  const add = await client.call<{ AddResults?: ObjectResult[] }>("campaigns", "add", {
+    Campaigns: [
+      {
+        Name: name,
+        StartDate: startDate(),
+        [kind]: {
+          BiddingStrategy: {
+            Search: { BiddingStrategyType: "HIGHEST_POSITION", HighestPosition: { WeeklySpendLimit: weeklyMicros } },
+            Network: { BiddingStrategyType: "SERVING_OFF" },
+          },
+        },
+      },
+    ],
+  });
+  const created = add.AddResults?.[0];
+  if (!created?.Id) throw new Error(`campaigns.add (${kind}): ${firstError(created)}`);
+  pass(`campaigns.add (v501, ${kind}): "${name}" → ${created.Id}`);
+
+  let verifyError: unknown;
+  try {
+    const got = await client.call<{ Campaigns?: Campaign[] }>("campaigns", "get", {
+      SelectionCriteria: { Ids: [created.Id] },
+      FieldNames: ["Id", "Name", "Type", "State"],
+      [`${kind}FieldNames`]: ["BiddingStrategy", "WeeklyBudgetRollover"],
+    });
+    const campaign = got.Campaigns?.[0];
+    if (!campaign) throw new Error(`campaigns.get: campaign ${created.Id} not returned`);
+    expectEqual("Name", campaign.Name, name);
+    expectEqual("Type", campaign.Type, TYPE_OF[kind]);
+    const block = campaign[kind];
+    const strategy = block?.BiddingStrategy;
+    expectEqual("Search.BiddingStrategyType", strategy?.Search?.BiddingStrategyType, "HIGHEST_POSITION");
+    expectEqual("Search.HighestPosition.WeeklySpendLimit", strategy?.Search?.HighestPosition?.WeeklySpendLimit, weeklyMicros);
+    expectEqual("Network.BiddingStrategyType", strategy?.Network?.BiddingStrategyType, "SERVING_OFF");
+    pass(
+      `campaigns.get: ${campaign.Type}, State ${campaign.State}, WeeklySpendLimit ${weeklyMicros}, ` +
+        `WeeklyBudgetRollover ${JSON.stringify(block?.WeeklyBudgetRollover)}`,
+    );
+  } catch (err) {
+    verifyError = err;
+  }
+
+  // The campaign goes away even when the read-back failed; both failures get reported.
+  try {
+    await deleteCampaigns(client, [created.Id]);
+    pass(`campaigns.delete: ${created.Id}`);
+  } catch (err) {
+    console.error(`FAIL campaigns.delete ${created.Id}: ${err instanceof Error ? err.message : String(err)}`);
+    if (!verifyError) throw err;
+  }
+  if (verifyError) throw verifyError;
 }
 
 async function main(): Promise<void> {
@@ -150,58 +211,9 @@ async function main(): Promise<void> {
   const rows = tsv.split("\n").filter((line) => line.trim() !== "").length;
   pass(`reports (ACCOUNT_PERFORMANCE_REPORT, YESTERDAY): ${rows} row(s)`);
 
-  // 6. Write round-trip: draft ЕПК with manual bids on search, networks off.
-  const name = e2eCampaignName();
-  const add = await client.call<{ AddResults?: ObjectResult[] }>("campaigns", "add", {
-    Campaigns: [
-      {
-        Name: name,
-        StartDate: startDate(),
-        UnifiedCampaign: {
-          BiddingStrategy: {
-            Search: { BiddingStrategyType: "HIGHEST_POSITION", HighestPosition: { WeeklySpendLimit: weeklyMicros } },
-            Network: { BiddingStrategyType: "SERVING_OFF" },
-          },
-        },
-      },
-    ],
-  });
-  const created = add.AddResults?.[0];
-  if (!created?.Id) throw new Error(`campaigns.add: ${firstError(created)}`);
-  pass(`campaigns.add (v501, UnifiedCampaign): "${name}" → ${created.Id}`);
-
-  let verifyError: unknown;
-  try {
-    const got = await client.call<{ Campaigns?: Campaign[] }>("campaigns", "get", {
-      SelectionCriteria: { Ids: [created.Id] },
-      FieldNames: ["Id", "Name", "Type", "State"],
-      UnifiedCampaignFieldNames: ["BiddingStrategy", "WeeklyBudgetRollover"],
-    });
-    const campaign = got.Campaigns?.[0];
-    if (!campaign) throw new Error(`campaigns.get: campaign ${created.Id} not returned`);
-    expectEqual("Name", campaign.Name, name);
-    expectEqual("Type", campaign.Type, "UNIFIED_CAMPAIGN");
-    const strategy = campaign.UnifiedCampaign?.BiddingStrategy;
-    expectEqual("Search.BiddingStrategyType", strategy?.Search?.BiddingStrategyType, "HIGHEST_POSITION");
-    expectEqual("Search.HighestPosition.WeeklySpendLimit", strategy?.Search?.HighestPosition?.WeeklySpendLimit, weeklyMicros);
-    expectEqual("Network.BiddingStrategyType", strategy?.Network?.BiddingStrategyType, "SERVING_OFF");
-    pass(
-      `campaigns.get: ${campaign.Type}, State ${campaign.State}, WeeklySpendLimit ${weeklyMicros}, ` +
-        `WeeklyBudgetRollover ${JSON.stringify(campaign.UnifiedCampaign?.WeeklyBudgetRollover)}`,
-    );
-  } catch (err) {
-    verifyError = err;
-  }
-
-  // The campaign goes away even when the read-back failed; both failures get reported.
-  try {
-    await deleteCampaigns(client, [created.Id]);
-    pass(`campaigns.delete: ${created.Id}`);
-  } catch (err) {
-    console.error(`FAIL campaigns.delete ${created.Id}: ${err instanceof Error ? err.message : String(err)}`);
-    if (!verifyError) throw err;
-  }
-  if (verifyError) throw verifyError;
+  // 6. Write round-trips: draft campaigns with manual bids on search, networks off.
+  await roundTrip(client, "UnifiedCampaign", weeklyMicros);
+  await roundTrip(client, "TextCampaign", weeklyMicros);
 
   console.log(`\nE2E check passed: ${passed.length} checks on "${account.Login}".`);
 }
