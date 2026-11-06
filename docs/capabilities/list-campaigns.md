@@ -40,7 +40,9 @@
 
 ## Возможные ошибки и ограничения
 
-Денежные поля (DailyBudget.Amount и Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта.
+Денежные поля (Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта.
+
+Бюджет кампании — недельный (`WeeklySpendLimit`) и у ручных ставок, и у автостратегий; он лежит внутри `BiddingStrategy` и виден только при `strategy: true`. Дневного бюджета (`DailyBudget`) у API больше нет (с 30.11.2026), в `fieldNames` он не принимается.
 
 Доступ также зависит от прав токена, квот и ограничений исходного API.
 

@@ -106,54 +106,20 @@ for (const [field, apiField] of [
   });
 }
 
-test("update_campaign sends only provided fields and converts the budget", async () => {
+test("update_campaign sends only provided fields in a single update, no read first", async () => {
   const { calls, tools } = harness(registerCampaignTools);
-  const res = await tools.update_campaign({
-    id: 7,
-    name: "New",
-    dailyBudgetAmount: 100,
-    dailyBudgetMode: "STANDARD",
-  });
+  const res = await tools.update_campaign({ id: 7, name: "New", endDate: "2026-12-31" });
   assert.equal(res.isError, undefined);
-  // An explicit dailyBudgetMode goes straight to update — no read-before-write.
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, "update");
-  assert.deepEqual(calls[0].params.Campaigns[0], {
-    Id: 7,
-    Name: "New",
-    DailyBudget: { Amount: 100_000_000, Mode: "STANDARD" },
-  });
+  assert.deepEqual(calls[0].params.Campaigns[0], { Id: 7, Name: "New", EndDate: "2026-12-31" });
 });
 
-test("update_campaign preserves the campaign's current budget mode when none is given", async () => {
-  // Regression: Mode used to default to STANDARD, silently flipping a DISTRIBUTED
-  // campaign into spend-as-fast-as-possible on any budget change.
-  const { calls, tools } = harness(registerCampaignTools, {
-    getResult: { Campaigns: [{ DailyBudget: { Amount: 1, Mode: "DISTRIBUTED" } }] },
-  });
-  const res = await tools.update_campaign({ id: 7, dailyBudgetAmount: 100 });
-  assert.equal(res.isError, undefined);
-  assert.equal(calls[0].method, "get");
-  assert.deepEqual(calls[0].params.SelectionCriteria, { Ids: [7] });
-  assert.deepEqual(calls[0].params.FieldNames, ["DailyBudget"]);
-  assert.equal(calls[1].method, "update");
-  assert.deepEqual(calls[1].params.Campaigns[0].DailyBudget, {
-    Amount: 100_000_000,
-    Mode: "DISTRIBUTED",
-  });
-});
-
-test("update_campaign falls back to STANDARD when the campaign has no daily budget yet", async () => {
-  const { calls, tools } = harness(registerCampaignTools, { getResult: { Campaigns: [{}] } });
-  await tools.update_campaign({ id: 7, dailyBudgetAmount: 100 });
-  assert.equal(calls[1].params.Campaigns[0].DailyBudget.Mode, "STANDARD");
-});
-
-test("update_campaign without a budget change does not read the campaign", async () => {
+test("update_campaign never sends DailyBudget (retired by Yandex on 2026-11-30)", async () => {
+  // Budget parameters were removed from the schema; a stray one is dropped, not forwarded.
   const { calls, tools } = harness(registerCampaignTools);
-  await tools.update_campaign({ id: 7, name: "Only name" });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].method, "update");
+  await tools.update_campaign({ id: 7, name: "New", dailyBudgetAmount: 100 });
+  assert.equal("DailyBudget" in calls[0].params.Campaigns[0], false);
 });
 
 test("update_campaign rejects an empty update and makes no call", async () => {

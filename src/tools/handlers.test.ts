@@ -159,23 +159,71 @@ test("non-heavy report (ACCOUNT) still returns raw TSV", async () => {
   assert.equal(res.content[0].text, "raw\ttsv");
 });
 
-test("create_text_campaign applies the default strategy and converts the budget", async () => {
+test("create_text_campaign applies the default strategy with the weekly budget inside it", async () => {
   const { calls, tools } = harness(registerCampaignTools, { callResult: { AddResults: [{ Id: 1 }] } });
-  await tools.create_text_campaign({ name: "C", startDate: "2026-01-01", dailyBudgetAmount: 500 });
+  await tools.create_text_campaign({ name: "C", startDate: "2026-01-01", weeklyBudgetAmount: 500 });
   const c = calls[0].params.Campaigns[0];
-  assert.equal(c.DailyBudget.Amount, 500_000_000);
-  assert.equal(c.TextCampaign.BiddingStrategy.Search.BiddingStrategyType, "HIGHEST_POSITION");
-  assert.equal(c.TextCampaign.BiddingStrategy.Network.BiddingStrategyType, "SERVING_OFF");
+  assert.equal("DailyBudget" in c, false);
+  assert.deepEqual(c.TextCampaign.BiddingStrategy, {
+    Search: { BiddingStrategyType: "HIGHEST_POSITION", HighestPosition: { WeeklySpendLimit: 500_000_000 } },
+    Network: { BiddingStrategyType: "SERVING_OFF" },
+  });
+});
+
+test("create_text_campaign without a budget sends the bare manual strategy", async () => {
+  const { calls, tools } = harness(registerCampaignTools, { callResult: { AddResults: [{ Id: 1 }] } });
+  await tools.create_text_campaign({ name: "C", startDate: "2026-01-01" });
+  assert.deepEqual(calls[0].params.Campaigns[0].TextCampaign.BiddingStrategy.Search, {
+    BiddingStrategyType: "HIGHEST_POSITION",
+  });
+});
+
+test("create_text_campaign refuses weeklyBudgetAmount next to an explicit biddingStrategy", async () => {
+  const { calls, tools } = harness(registerCampaignTools);
+  const res = await tools.create_text_campaign({
+    name: "C",
+    startDate: "2026-01-01",
+    weeklyBudgetAmount: 500,
+    biddingStrategy: {
+      Search: { BiddingStrategyType: "WB_MAXIMUM_CLICKS", WbMaximumClicks: { WeeklySpendLimit: 3000 } },
+      Network: { BiddingStrategyType: "SERVING_OFF" },
+    },
+  });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /WeeklySpendLimit/);
+  assert.equal(calls.length, 0);
 });
 
 test("list_campaigns sends only provided filters and normalizes money on output", async () => {
   const { calls, tools } = harness(registerCampaignTools, {
-    callResult: { Campaigns: [{ Id: 1, DailyBudget: { Amount: 1_000_000_000, Mode: "STANDARD" } }] },
+    callResult: { Campaigns: [{ Id: 1, Funds: { Mode: "CAMPAIGN_FUNDS", CampaignFunds: { Sum: 1_000_000_000 } } }] },
   });
   const res = await tools.list_campaigns({ states: ["ON"], limit: 5 });
   assert.deepEqual(calls[0].params.SelectionCriteria, { States: ["ON"] });
   assert.deepEqual(calls[0].params.Page, { Limit: 5, Offset: 0 });
-  assert.match(res.content[0].text, /"Amount":1000/);
+  assert.equal(calls[0].params.FieldNames.includes("DailyBudget"), false, "DailyBudget is retired");
+  assert.match(res.content[0].text, /"Sum":1000/);
+});
+
+test("list_campaigns strategy: true returns the manual-bid weekly budget in currency", async () => {
+  const { tools } = harness(registerCampaignTools, {
+    callResult: {
+      Campaigns: [
+        {
+          Id: 1,
+          TextCampaign: {
+            BiddingStrategy: {
+              Search: { BiddingStrategyType: "HIGHEST_POSITION", HighestPosition: { WeeklySpendLimit: 3_500_000_000 } },
+              Network: { BiddingStrategyType: "SERVING_OFF" },
+            },
+          },
+        },
+      ],
+    },
+  });
+  const res = await tools.list_campaigns({ ids: [1], strategy: true });
+  const search = JSON.parse(res.content[0].text).Campaigns[0].TextCampaign.BiddingStrategy.Search;
+  assert.equal(search.HighestPosition.WeeklySpendLimit, 3500);
 });
 
 test("create_text_campaign converts money inside an explicit biddingStrategy", async () => {

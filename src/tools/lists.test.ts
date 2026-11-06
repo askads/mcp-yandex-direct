@@ -33,7 +33,7 @@ function harness(register: (server: any, client: any) => void) {
 }
 
 const LISTS = [
-  { register: registerCampaignTools, tool: "list_campaigns", valid: "DailyBudget", args: {} },
+  { register: registerCampaignTools, tool: "list_campaigns", valid: "Funds", args: {} },
   { register: registerAdGroupTools, tool: "list_ad_groups", valid: "RegionIds", args: { campaignIds: [1] } },
   { register: registerAdTools, tool: "list_ads", valid: "Title", args: { campaignIds: [1] } },
   { register: registerKeywordTools, tool: "list_keywords", valid: "Bid", args: { campaignIds: [1] } },
@@ -46,6 +46,14 @@ for (const { register, tool, valid, args } of LISTS) {
     assert.equal(schema.safeParse({ ...args, fieldNames: ["Budget"] }).success, false);
   });
 }
+
+test("list_campaigns: DailyBudget is neither requested by default nor accepted in fieldNames", async () => {
+  // Yandex retires DailyBudget on 2026-11-30; the budget is weekly and lives in BiddingStrategy.
+  const { calls, tools } = harness(registerCampaignTools);
+  assert.equal(tools.list_campaigns.schema.safeParse({ fieldNames: ["DailyBudget"] }).success, false);
+  await tools.list_campaigns.handler({});
+  assert.equal(calls[0].params.FieldNames.includes("DailyBudget"), false);
+});
 
 test("get_account_info: fieldNames outside the clients.get enum are rejected by the schema", () => {
   const { schema } = harness(registerAccountTools).tools.get_account_info;
