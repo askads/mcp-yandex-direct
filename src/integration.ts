@@ -44,9 +44,10 @@ interface TypeBlock {
 }
 
 type CampaignKind = "UnifiedCampaign" | "TextCampaign";
-const PLAN: Record<CampaignKind, { type: string; strategy: string; params: string }> = {
-  UnifiedCampaign: { type: "UNIFIED_CAMPAIGN", strategy: "HIGHEST_POSITION", params: "HighestPosition" },
-  TextCampaign: { type: "TEXT_CAMPAIGN", strategy: "WB_MAXIMUM_CLICKS", params: "WbMaximumClicks" },
+// v501 turns an added TextCampaign into a ЕПК: it comes back as UNIFIED_CAMPAIGN (live 2026-11-07).
+const PLAN: Record<CampaignKind, { types: string[]; strategy: string; params: string }> = {
+  UnifiedCampaign: { types: ["UNIFIED_CAMPAIGN"], strategy: "HIGHEST_POSITION", params: "HighestPosition" },
+  TextCampaign: { types: ["TEXT_CAMPAIGN", "UNIFIED_CAMPAIGN"], strategy: "WB_MAXIMUM_CLICKS", params: "WbMaximumClicks" },
 };
 
 const passed: string[] = [];
@@ -116,13 +117,16 @@ async function roundTrip(client: YandexDirectClient, kind: CampaignKind, weeklyM
     const got = await client.call<{ Campaigns?: Campaign[] }>("campaigns", "get", {
       SelectionCriteria: { Ids: [created.Id] },
       FieldNames: ["Id", "Name", "Type", "State"],
-      [`${kind}FieldNames`]: ["BiddingStrategy", "WeeklyBudgetRollover"],
+      TextCampaignFieldNames: ["BiddingStrategy", "WeeklyBudgetRollover"],
+      UnifiedCampaignFieldNames: ["BiddingStrategy", "WeeklyBudgetRollover"],
     });
     const campaign = got.Campaigns?.[0];
     if (!campaign) throw new Error(`campaigns.get: campaign ${created.Id} not returned`);
     expectEqual("Name", campaign.Name, name);
-    expectEqual("Type", campaign.Type, plan.type);
-    const block = campaign[kind];
+    if (!campaign.Type || !plan.types.includes(campaign.Type)) {
+      throw new Error(`Type: expected one of ${plan.types.join(", ")}, got ${JSON.stringify(campaign.Type)}`);
+    }
+    const block = campaign.Type === "TEXT_CAMPAIGN" ? campaign.TextCampaign : campaign.UnifiedCampaign;
     const strategy = block?.BiddingStrategy;
     expectEqual("Search.BiddingStrategyType", strategy?.Search?.BiddingStrategyType, plan.strategy);
     const search = strategy?.Search?.[plan.params] as { WeeklySpendLimit?: number } | undefined;
