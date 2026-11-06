@@ -23,6 +23,11 @@
 - `update_campaign`: меняет только название, дату окончания и минус-фразы. Бюджет — часть
   стратегии, его меняет `set_campaign_strategy` (описание обоих инструментов направляет туда).
   Дочитки режима `DailyBudget` перед записью больше нет.
+- `dailyBudgetAmount` / `dailyBudgetMode` у обоих инструментов остались в схеме как устаревшие и
+  отклоняются до запроса с подсказкой (`weeklyBudgetAmount` / `set_campaign_strategy`). Убрать их
+  совсем было нельзя: SDK молча отбрасывает неизвестные аргументы, и клиент с закешированным
+  `tools/list` (ChatGPT держит его на чат) создал бы кампанию без бюджета или переименовал её без
+  смены бюджета, увидев «успех».
 - `list_campaigns`: `DailyBudget` убран из полей по умолчанию и из `fieldNames`. Недельный бюджет
   и ручных ставок, и автостратегий виден в `BiddingStrategy` при `strategy: true`.
 - `set_campaign_strategy`: описание называет `HighestPosition: {WeeklySpendLimit}` как место
@@ -34,9 +39,9 @@
 
 ### Удалено
 
-- `dailyBudgetAmount` и `dailyBudgetMode` у `create_text_campaign` и `update_campaign`;
-  `DailyBudget` в `fieldNames` у `list_campaigns`; `Amount` из денежных полей `normalizeMoney`
-  (в v5 он встречался только в `DailyBudget`).
+- Запись `DailyBudget` в `create_text_campaign` и `update_campaign` (параметры теперь только
+  отклоняют вызов, см. выше); `DailyBudget` в `fieldNames` у `list_campaigns`; `Amount` из
+  денежных полей `normalizeMoney` (в v5 он встречался только в `DailyBudget`).
 
 ## [1.12.2] — 2026-11-04
 

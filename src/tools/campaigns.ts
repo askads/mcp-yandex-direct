@@ -53,6 +53,33 @@ const DEFAULT_FIELDS = [
  * (HighestPosition.WeeklySpendLimit, micros). Pass an explicit biddingStrategy
  * to use an auto-strategy.
  */
+/**
+ * The retired DailyBudget parameters stay in the schema on purpose: the MCP SDK strips
+ * arguments the schema does not know, so a client with a cached tools/list (ChatGPT keeps
+ * it per chat) would send them, get them dropped and create or update a campaign without
+ * its budget while seeing success. Keeping them lets the handler refuse explicitly.
+ */
+function deprecatedDailyBudget(hint: string) {
+  const note = `Устарело: дневного бюджета в Директе больше нет (с 30.11.2026) — вызов с этим параметром отклоняется. ${hint}`;
+  return {
+    dailyBudgetAmount: z.number().optional().describe(note),
+    dailyBudgetMode: z.enum(["STANDARD", "DISTRIBUTED"]).optional().describe(note),
+  };
+}
+
+function rejectDailyBudget(args: { dailyBudgetAmount?: number; dailyBudgetMode?: string }, hint: string) {
+  if (args.dailyBudgetAmount === undefined && args.dailyBudgetMode === undefined) return undefined;
+  return fail(
+    "dailyBudgetAmount и dailyBudgetMode больше не поддерживаются: с 30.11.2026 дневного бюджета (DailyBudget) " +
+      `в Директе нет, бюджет недельный и является частью стратегии. ${hint}`,
+  );
+}
+
+const CREATE_BUDGET_HINT =
+  "Недельный бюджет ручных ставок — weeklyBudgetAmount; у явной biddingStrategy — WeeklySpendLimit внутри неё.";
+const UPDATE_BUDGET_HINT =
+  "Менять бюджет — set_campaign_strategy (ручные ставки — HighestPosition: {WeeklySpendLimit}, автостратегии — WeeklySpendLimit в их структуре параметров).";
+
 function defaultBiddingStrategy(weeklyBudgetAmount?: number) {
   return {
     Search: compact({
@@ -153,10 +180,13 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
             "Полный объект BiddingStrategy {Search, Network} в формате API, деньги (WeeklySpendLimit, BidCeiling, " +
               "AverageCpc, AverageCpa, Cpa…) в валюте аккаунта. Заменяет значение по умолчанию.",
           ),
+        ...deprecatedDailyBudget(CREATE_BUDGET_HINT),
       },
     },
-    async ({ name, startDate, endDate, weeklyBudgetAmount, biddingStrategy }) => {
+    async ({ name, startDate, endDate, weeklyBudgetAmount, biddingStrategy, ...deprecated }) => {
       try {
+        const rejected = rejectDailyBudget(deprecated, CREATE_BUDGET_HINT);
+        if (rejected) return rejected;
         if (biddingStrategy && (!biddingStrategy.Search || !biddingStrategy.Network)) {
           return fail("biddingStrategy должен содержать оба объекта стратегии: Search и Network.");
         }
@@ -224,10 +254,13 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
           .array(z.string())
           .optional()
           .describe("Заменяет минус-фразы кампании; пустой массив очищает их. Чтобы дописать или убрать отдельные фразы, не затирая список, — update_negative_keywords."),
+        ...deprecatedDailyBudget(UPDATE_BUDGET_HINT),
       },
     },
-    async ({ id, name, endDate, negativeKeywords }) => {
+    async ({ id, name, endDate, negativeKeywords, ...deprecated }) => {
       try {
+        const rejected = rejectDailyBudget(deprecated, UPDATE_BUDGET_HINT);
+        if (rejected) return rejected;
         const campaign = compact({
           Id: id,
           Name: name,

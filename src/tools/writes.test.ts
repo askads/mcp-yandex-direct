@@ -115,11 +115,16 @@ test("update_campaign sends only provided fields in a single update, no read fir
   assert.deepEqual(calls[0].params.Campaigns[0], { Id: 7, Name: "New", EndDate: "2026-12-31" });
 });
 
-test("update_campaign never sends DailyBudget (retired by Yandex on 2026-11-30)", async () => {
-  // Budget parameters were removed from the schema; a stray one is dropped, not forwarded.
-  const { calls, tools } = harness(registerCampaignTools);
-  await tools.update_campaign({ id: 7, name: "New", dailyBudgetAmount: 100 });
-  assert.equal("DailyBudget" in calls[0].params.Campaigns[0], false);
+test("update_campaign refuses the retired daily budget before any call (Yandex drops it 2026-11-30)", async () => {
+  // Silently dropping the parameter would rename the campaign and report success without
+  // touching the budget — the caller must learn where the budget lives now.
+  for (const args of [{ dailyBudgetAmount: 100 }, { dailyBudgetMode: "DISTRIBUTED" }]) {
+    const { calls, tools } = harness(registerCampaignTools);
+    const res = await tools.update_campaign({ id: 7, name: "New", ...args });
+    assert.equal(res.isError, true, JSON.stringify(args));
+    assert.match(res.content[0].text, /set_campaign_strategy/);
+    assert.equal(calls.length, 0);
+  }
 });
 
 test("update_campaign rejects an empty update and makes no call", async () => {
