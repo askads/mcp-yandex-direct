@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, isoDate, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, stringList, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, isoDate, MAX_TOOL_LIMIT, normalizeMoney, ok, okOrPartial, READ_ONLY, stringList, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE, V501_ROUTE_NOTE } from "./util.js";
 import { normalizeStrategyMoney, STRATEGY_READ_FIELDS, strategyToMicros } from "./strategy.js";
 
 // Types accepted by campaigns.get SelectionCriteria.Types. UNIFIED_CAMPAIGN is the
@@ -92,7 +92,7 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "Список кампаний",
       annotations: READ_ONLY,
       description:
-        "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Запрос идёт в API v501: только он отдаёт Единую перформанс-кампанию с типом UNIFIED_CAMPAIGN (v5 называет её TEXT_CAMPAIGN; ответ v5 доступен через raw_request с apiVersion \"v5\"). Денежные поля (Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта. " +
+        "Возвращает список кампаний с необязательными фильтрами по id, типу, состоянию и статусу. Запрос идёт в API v501 (в песочнице — в v5): только он отдаёт Единую перформанс-кампанию с типом UNIFIED_CAMPAIGN (v5 называет её TEXT_CAMPAIGN; ответ v5 доступен через raw_request с apiVersion \"v5\"). Денежные поля (Funds общего счёта — Sum, Balance, SumAvailableForTransfer, Spend) отдаются в валюте аккаунта. " +
           "Бюджет кампании — недельный (WeeklySpendLimit) и у ручных ставок, и у автостратегий; он лежит внутри BiddingStrategy и виден только при strategy: true (дневного бюджета DailyBudget у API больше нет). " +
           "strategy: true добавляет блок TextCampaign/UnifiedCampaign со стратегией (BiddingStrategy), ключевыми целями (PriorityGoals), счётчиками Метрики, моделью атрибуции, пакетной стратегией и переносом бюджета (WeeklyBudgetRollover — сколько добавлено к недельному бюджету за счёт неиспользованного на прошлой неделе, до 30%; null — перенос не применяется или данных нет) — деньги в нём тоже в валюте аккаунта, а сам объект BiddingStrategy в этом виде принимает set_campaign_strategy.",
       inputSchema: {
@@ -155,7 +155,8 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       annotations: WRITE_CREATE,
       description:
         "Создаёт кампанию TextCampaign (текстово-графические объявления). Без biddingStrategy применяются ручные ставки на поиске с отключёнными сетями (Search HIGHEST_POSITION, Network SERVING_OFF) — у ручных ставок текстовой кампании бюджета в API нет. " +
-          "Чтобы ограничить расход, включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}, недельный бюджет внутри него (WeeklySpendLimit в структуре параметров автостратегии). Дневного бюджета у Директа больше нет.",
+          "Чтобы ограничить расход, включить автостратегию или сети, передать biddingStrategy целиком — {Search, Network}, недельный бюджет внутри него (WeeklySpendLimit в структуре параметров автостратегии). Дневного бюджета у Директа больше нет." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         name: z.string().min(1).describe("Название кампании."),
         startDate: isoDate().describe("Дата начала в формате YYYY-MM-DD."),
@@ -207,7 +208,8 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       title: "Действие с кампаниями",
       annotations: WRITE_DELETE,
       description:
-        "Выполняет действие над кампаниями по id: suspend, resume, archive, unarchive или delete.",
+        "Выполняет действие над кампаниями по id: suspend, resume, archive, unarchive или delete." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         action: z.enum(["suspend", "resume", "archive", "unarchive", "delete"]),
         ids: z.array(z.number().int()).min(1).describe("Id кампаний, к которым применить действие."),
@@ -233,7 +235,8 @@ export function registerCampaignTools(server: McpServer, client: YandexDirectCli
       description:
         "Обновляет название, дату окончания и/или минус-фразы кампании (campaigns/update). " +
         "Бюджет здесь не меняется: у Директа он недельный и является частью стратегии — set_campaign_strategy " +
-        "(WeeklySpendLimit в структуре параметров автостратегии; у ручных ставок — HighestPosition: {WeeklySpendLimit}, только у ЕПК).",
+        "(WeeklySpendLimit в структуре параметров автостратегии; у ручных ставок — HighestPosition: {WeeklySpendLimit}, только у ЕПК)." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         id: z.number().int().describe("Id кампании, которую нужно обновить."),
         name: z.string().min(1).optional().describe("Новое название кампании."),

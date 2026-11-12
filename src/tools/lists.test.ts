@@ -122,10 +122,10 @@ test("list_ads: responsiveAdFieldNames go to the API as given, next to the text 
   assert.deepEqual(calls[0].params.ResponsiveAdFieldNames, ["Titles", "Texts", "Href"]);
 });
 
-test("list_ads: only responsive fields still sends a non-empty FieldNames", async () => {
+test("list_ads: responsive fields without fieldNames keep the documented default fields", async () => {
   const { calls, tools } = harness(registerAdTools);
   await tools.list_ads.handler({ campaignIds: [1], responsiveAdFieldNames: ["Titles"] });
-  assert.deepEqual(calls[0].params.FieldNames, ["Id"]);
+  assert.deepEqual(calls[0].params.FieldNames, ["Id", "AdGroupId", "CampaignId", "Status", "State", "Type"]);
   assert.equal("TextAdFieldNames" in calls[0].params, false);
   await tools.list_ads.handler({ campaignIds: [1], responsiveAdFieldNames: [] });
   assert.equal("ResponsiveAdFieldNames" in calls[1].params, false);

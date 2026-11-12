@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, WRITE_DELETE } from "./util.js";
+import { fail, WRITE_DELETE, V501_ROUTE_NOTE } from "./util.js";
 import { checkListInput, editList, LIST_ACTIONS } from "./listEdit.js";
 
 /**
@@ -35,7 +35,8 @@ export function registerNegativeKeywordTools(server: McpServer, client: YandexDi
         "произошло. Между чтением и записью нет блокировки: правка того же списка в интерфейсе в эту секунду " +
         "будет перезаписана. Ограничения API: фраза без минуса в начале, до 7 слов, слово до 35 символов; " +
         "суммарно до 20 000 символов на кампанию и 4096 на группу — нарушения API вернёт ошибкой по объекту. " +
-        "Минус-фразы кампании и группы действуют вместе.",
+        "Минус-фразы кампании и группы действуют вместе." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         campaignId: z.number().int().optional().describe("Id кампании (либо это поле, либо adGroupId)."),
         adGroupId: z.number().int().optional().describe("Id группы объявлений (либо это поле, либо campaignId)."),

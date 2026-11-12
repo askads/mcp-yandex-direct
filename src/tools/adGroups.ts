@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, stringList, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, stringList, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE, V501_ROUTE_NOTE } from "./util.js";
 
 // adgroups.get FieldNames (checked live 2026-10-30).
 const AD_GROUP_FIELDS = [
@@ -19,7 +19,7 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
       annotations: READ_ONLY,
       description:
         "Возвращает список групп объявлений. Нужно передать campaignIds и/или ids — API Яндекс Директа требует хотя бы один критерий отбора. " +
-        "Запрос идёт в API v501: группы Единой перформанс-кампании приходят с Type UNIFIED_AD_GROUP (v5 называет их TEXT_AD_GROUP; ответ v5 доступен через raw_request с apiVersion \"v5\").",
+        "Запрос идёт в API v501 (в песочнице — в v5): группы Единой перформанс-кампании приходят с Type UNIFIED_AD_GROUP (v5 называет их TEXT_AD_GROUP; ответ v5 доступен через raw_request с apiVersion \"v5\").",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         ids: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
@@ -60,7 +60,8 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
     {
       title: "Создать группу объявлений",
       annotations: WRITE_CREATE,
-      description: "Создаёт группу объявлений в кампании с заданными регионами показа.",
+      description: "Создаёт группу объявлений в кампании с заданными регионами показа." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         name: z.string().min(1).describe("Название группы объявлений."),
         campaignId: z.number().int().describe("Id родительской кампании."),
@@ -86,7 +87,8 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
     {
       title: "Обновить группу объявлений",
       annotations: WRITE_UPDATE,
-      description: "Обновляет название и/или регионы показа группы объявлений (adgroups/update).",
+      description: "Обновляет название и/или регионы показа группы объявлений (adgroups/update)." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         id: z.number().int().describe("Id группы, которую нужно обновить."),
         name: z.string().min(1).optional().describe("Новое название группы."),
@@ -126,7 +128,8 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
       title: "Удалить группы объявлений",
       annotations: WRITE_DELETE,
       description:
-        "Удаляет группы объявлений по id (adgroups/delete). Вместе с группой удаляются её объявления и ключевые фразы; отменить это нельзя.",
+        "Удаляет группы объявлений по id (adgroups/delete). Вместе с группой удаляются её объявления и ключевые фразы; отменить это нельзя." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         ids: z.array(z.number().int()).min(1).describe("Id групп, которые нужно удалить."),
       },
