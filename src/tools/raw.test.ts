@@ -6,11 +6,11 @@ type Args = Record<string, unknown>;
 type Handler = (args: Args) => Promise<{ content: { text: string }[]; isError?: boolean }>;
 
 function harness() {
-  const calls: { service: string; method: string; params: unknown }[] = [];
+  const calls: { service: string; method: string; params: unknown; opts?: unknown }[] = [];
   let tool: Handler | undefined;
   const client = {
-    call: async (service: string, method: string, params: unknown) => {
-      calls.push({ service, method, params });
+    call: async (service: string, method: string, params: unknown, ...rest: unknown[]) => {
+      calls.push(rest.length ? { service, method, params, opts: rest[0] } : { service, method, params });
       return { ok: true };
     },
   };
@@ -62,4 +62,14 @@ test("raw_request defaults params to an empty object", async () => {
   const { calls, raw } = harness();
   await raw({ service: "changes", method: "checkDictionaries" });
   assert.deepEqual(calls[0].params, {});
+});
+
+test("raw_request passes apiVersion only when the caller named one", async () => {
+  const { calls, raw } = harness();
+  await raw({ service: "adgroups", method: "get", params: {} });
+  await raw({ service: "adgroups", method: "get", params: {}, apiVersion: "v5" });
+  await raw({ service: "ads", method: "get", params: {}, apiVersion: "v501" });
+  assert.equal("opts" in calls[0], false);
+  assert.deepEqual(calls[1].opts, { apiVersion: "v5" });
+  assert.deepEqual(calls[2].opts, { apiVersion: "v501" });
 });

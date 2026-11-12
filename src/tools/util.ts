@@ -55,6 +55,13 @@ export const adId = () =>
     z.string().regex(/^\d+$/, "Id — число или строка из цифр"),
   ]);
 
+/**
+ * Appended to the description of every tool that talks to a service routed to v501 by
+ * default (client.ts, V501_DEFAULT_SERVICES): the version a request goes to is part of what
+ * the tool does, so the consuming model is told, sandbox exception included.
+ */
+export const V501_ROUTE_NOTE = "Запрос идёт в API v501, в песочнице — в v5.";
+
 /** Appended to the description of every parameter that takes ad ids. */
 export const AD_ID_HINT = "Длинный id (приходит в ответах строкой) передавать строкой как есть.";
 

@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, fromMicros, normalizeMoney, okOrPartial, toMicros, WRITE_UPDATE } from "./util.js";
+import { fail, fromMicros, normalizeMoney, okOrPartial, toMicros, WRITE_UPDATE, V501_ROUTE_NOTE } from "./util.js";
 
 /**
  * Money keys inside BiddingStrategy and PriorityGoals (all ×10⁶ in the API, per
@@ -102,7 +102,8 @@ export function registerStrategyTools(server: McpServer, client: YandexDirectCli
         "NETWORK_DEFAULT или SERVING_OFF; автостратегия в сетях ⇒ на поиске SERVING_OFF. Конверсионные стратегии " +
         "требуют GoalId цели Метрики и счётчик на кампании; стратегии *_MULTIPLE_GOALS берут цели из PriorityGoals. " +
         "Минимумы бюджета и ставок — get_dictionaries → Currencies. Смена типа стратегии перезапускает её " +
-        "обучение. Кампании других типов и кампании в пакетной стратегии — через raw_request.",
+        "обучение. Кампании других типов и кампании в пакетной стратегии — через raw_request." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         id: z.number().int().describe("Id кампании."),
         search: side("на поиске"),

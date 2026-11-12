@@ -98,6 +98,46 @@ test("list_ads: default fields send no TextAdFieldNames", async () => {
   assert.equal("TextAdFieldNames" in calls[0].params, false);
 });
 
+// The tool adds no field of its own: Direct answers a комбинаторное объявление as TEXT_AD
+// with TextAd until a responsive field is asked for, and which view comes back is the
+// caller's choice (checked live 2026-11-12).
+test("list_ads: text fields never add ResponsiveAdFieldNames on their own", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  await tools.list_ads.handler({ campaignIds: [1] });
+  await tools.list_ads.handler({ campaignIds: [1], fieldNames: ["Id", "Type"] });
+  await tools.list_ads.handler({ campaignIds: [1], fieldNames: ["Id", "Type", "Title", "Title2", "Text", "Href"] });
+  for (const call of calls) assert.equal("ResponsiveAdFieldNames" in call.params, false);
+  assert.deepEqual(calls[2].params.TextAdFieldNames, ["Title", "Title2", "Text", "Href"]);
+});
+
+test("list_ads: responsiveAdFieldNames go to the API as given, next to the text ones", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  await tools.list_ads.handler({
+    campaignIds: [1],
+    fieldNames: ["Id", "Type", "Title", "Mobile"],
+    responsiveAdFieldNames: ["Titles", "Texts", "Href"],
+  });
+  assert.deepEqual(calls[0].params.FieldNames, ["Id", "Type"]);
+  assert.deepEqual(calls[0].params.TextAdFieldNames, ["Title", "Mobile"]);
+  assert.deepEqual(calls[0].params.ResponsiveAdFieldNames, ["Titles", "Texts", "Href"]);
+});
+
+test("list_ads: responsive fields without fieldNames keep the documented default fields", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  await tools.list_ads.handler({ campaignIds: [1], responsiveAdFieldNames: ["Titles"] });
+  assert.deepEqual(calls[0].params.FieldNames, ["Id", "AdGroupId", "CampaignId", "Status", "State", "Type"]);
+  assert.equal("TextAdFieldNames" in calls[0].params, false);
+  await tools.list_ads.handler({ campaignIds: [1], responsiveAdFieldNames: [] });
+  assert.equal("ResponsiveAdFieldNames" in calls[1].params, false);
+});
+
+test("list_ads: the responsive field the API rejects on use is not in the enum", () => {
+  const { schema } = harness(registerAdTools).tools.list_ads;
+  assert.equal(schema.safeParse({ campaignIds: [1], responsiveAdFieldNames: ["Carousel"] }).success, true);
+  // Listed in the API's own enumeration, answers code 4000 "unknown field" when asked.
+  assert.equal(schema.safeParse({ campaignIds: [1], responsiveAdFieldNames: ["TrackingParams"] }).success, false);
+});
+
 test("list_ads: TextAd fields the API rejects on use are not in the enum", () => {
   // Listed in the API's code-8000 enumeration, but ads.get answers 4000/5006 for them.
   const { schema } = harness(registerAdTools).tools.list_ads;

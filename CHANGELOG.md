@@ -7,7 +7,7 @@
 
 ## [Unreleased]
 
-## [1.13.2] — 2026-11-12
+## [1.14.0] — 2026-11-12
 
 ### Исправлено
 
@@ -21,6 +21,24 @@
   `update_text_ad` принимают id объявления и числом, и строкой. Число, уже потерявшее точность,
   отклоняется до запроса с подсказкой передать id строкой. Проверено на живом кабинете:
   `ads.get`, `ads.update` и `ads.delete` принимают id строкой.
+- `list_ad_groups` называл группы Единой перформанс-кампании `TEXT_AD_GROUP`: так их видит
+  v5. Сервис `adgroups` по умолчанию переведён на v501 (как `campaigns`), который отдаёт
+  `UNIFIED_AD_GROUP`; создание, правка и удаление групп принимают там те же запросы (проверено
+  на живом кабинете). Заметно это в двух местах: у групп ЕПК меняется значение `Type`, а
+  фильтр `Types: ["TEXT_AD_GROUP"]` в `raw_request` к `adgroups` больше не находит группы ЕПК.
+
+### Добавлено
+
+- `raw_request`: параметр `apiVersion` (`v5` / `v501`) задаёт версию API явно для любого
+  сервиса, так что ответ v5 для `campaigns` и `adgroups` остаётся доступен. Версия по умолчанию
+  теперь названа в описании каждого инструмента, который ходит в `campaigns` или `adgroups`.
+  В песочнице есть только v5: явный `v501` там отклоняется.
+- `list_ads`: параметр `responsiveAdFieldNames` — поля комбинаторного объявления, передаются в
+  API как есть. Директ хранит объявления ЕПК комбинаторными, но без этих полей отдаёт их в виде
+  совместимости (`TEXT_AD` с `TextAd`); хотя бы одно поле переключает ответ на `RESPONSIVE_AD`
+  с объектом `ResponsiveAd` (`Titles[]` и `Texts[]` со статусом модерации каждого варианта).
+  Поведение `fieldNames` не изменилось, полей комбинаторного объявления инструмент сам не
+  добавляет. Цены в `PriceExtension` приходят как в API, в микроединицах.
 
 ## [1.13.1] — 2026-11-07
 
@@ -537,8 +555,8 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
-[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.2...HEAD
-[1.13.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.1...v1.13.2
+[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.1...v1.14.0
 [1.13.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.0...v1.13.1
 [1.13.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.2...v1.13.0
 [1.12.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...v1.12.2

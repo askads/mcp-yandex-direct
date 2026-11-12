@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { fail, WRITE_DELETE } from "./util.js";
+import { fail, WRITE_DELETE, V501_ROUTE_NOTE } from "./util.js";
 import { checkListInput, editList, LIST_ACTIONS } from "./listEdit.js";
 
 /**
@@ -36,7 +36,8 @@ export function registerExcludedSiteTools(server: McpServer, client: YandexDirec
         "Если add/remove ничего не меняют, записи нет (changed: false). Ответ: before/after — число площадок " +
         "до и после, added/alreadyPresent или removed/notFound. Между чтением и записью нет блокировки: правка " +
         "того же списка в интерфейсе в эту секунду будет перезаписана. Лимиты API: до 1000 площадок, " +
-        "до 255 символов в каждой. Текущий список — list_campaigns с fieldNames [\"ExcludedSites\"].",
+        "до 255 символов в каждой. Текущий список — list_campaigns с fieldNames [\"ExcludedSites\"]." +
+        ` ${V501_ROUTE_NOTE}`,
       inputSchema: {
         campaignId: z.number().int().describe("Id кампании."),
         action: z.enum(LIST_ACTIONS).describe("add, remove, replace или clear — см. описание инструмента."),

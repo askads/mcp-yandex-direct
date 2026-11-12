@@ -18,9 +18,20 @@ const SANDBOX_BASE = "https://api-sandbox.direct.yandex.com/json/v5/";
 
 // v501 is the only version that knows the Единая перформанс-кампания: v5 reports a
 // UNIFIED_CAMPAIGN as TEXT_CAMPAIGN and returns an empty list for Types=[UNIFIED_CAMPAIGN]
-// (checked live). Every other service answered v5 and v501 byte-for-byte alike on the same
-// reads, so only campaigns moves. The sandbox documents only /json/v5/, so it stays there.
-const V501_SERVICES = new Set(["campaigns"]);
+// (checked live). Its ad groups are the same story: v5 calls a UNIFIED_AD_GROUP a
+// TEXT_AD_GROUP, v501 names it and filters by it, and adgroups.add/update/delete take the
+// same bodies there (checked live 2026-11-12). Ads do NOT move: their type depends on the
+// field names requested, not on the version (see list_ads). Every other service answered
+// v5 and v501 byte-for-byte alike on the same reads. The sandbox documents only /json/v5/,
+// so it stays there.
+//
+// This table is only the DEFAULT, and it is spelled out in the descriptions of the tools it
+// affects (V501_DEFAULT_SERVICES below feeds them). raw_request can name the version
+// explicitly, so what v5 answers for these services stays reachable.
+export const V501_DEFAULT_SERVICES = ["campaigns", "adgroups"] as const;
+const V501_SERVICES: ReadonlySet<string> = new Set(V501_DEFAULT_SERVICES);
+export const API_VERSIONS = ["v5", "v501"] as const;
+export type ApiVersion = (typeof API_VERSIONS)[number];
 const PROD_V501_BASE = "https://api.direct.yandex.com/json/v501/";
 
 // Legacy Live v4 API — a DIFFERENT host/path and request shape than v5. Kept only for
@@ -251,6 +262,7 @@ export class YandexDirectClient {
     service: string,
     method: string,
     params: Record<string, unknown>,
+    opts: { apiVersion?: ApiVersion } = {},
   ): Promise<T> {
     // SSRF guard (matches the sibling MCP servers): resolve `service` against the API
     // base and reject anything that lands on a FOREIGN origin — an absolute URL
@@ -259,7 +271,14 @@ export class YandexDirectClient {
     // Comparing the resolved origin (not a brittle string test) stays correct regardless
     // of how the URL is built below.
     const path = service.replace(/^\//, "");
-    const base = V501_SERVICES.has(path.split(/[/?#]/)[0].toLowerCase()) ? this.v501Base : this.base;
+    // An explicit version wins over the default table. The sandbox has no v501, and falling
+    // back to v5 there would answer a different question than the one asked.
+    if (opts.apiVersion === "v501" && this.config.sandbox) {
+      throw new Error('Песочница Директа работает только с API v5 — apiVersion "v501" в ней недоступен.');
+    }
+    const version: ApiVersion =
+      opts.apiVersion ?? (V501_SERVICES.has(path.split(/[/?#]/)[0].toLowerCase()) ? "v501" : "v5");
+    const base = version === "v501" ? this.v501Base : this.base;
     const target = new URL(path, base);
     if (target.origin !== new URL(base).origin) {
       throw new Error(

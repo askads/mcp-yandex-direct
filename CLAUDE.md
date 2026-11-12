@@ -26,8 +26,14 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
   one silent refresh + replay per request — only when a refresh can succeed (see oauth.ts);
   otherwise it raises `AuthRequiredError` (log in again). A 53 under a `Client-Login` is
   `ClientAccessError`: Direct answers "no access to that client" with the same code. The
-  `campaigns` service goes to `json/v501/` (`V501_SERVICES`): v5 reports a ЕПК as TEXT_CAMPAIGN
-  and returns nothing for `Types=[UNIFIED_CAMPAIGN]`; every other service still uses v5.
+  `campaigns` and `adgroups` services go to `json/v501/` (`V501_SERVICES`): v5 reports a ЕПК as
+  TEXT_CAMPAIGN (nothing for `Types=[UNIFIED_CAMPAIGN]`) and its groups as TEXT_AD_GROUP; every
+  other service still uses v5. That table is only the default: the affected tools say so in
+  their descriptions, and `raw_request` takes `apiVersion` to name the version explicitly. Ads
+  stay on v5: a комбинаторное объявление answers as RESPONSIVE_AD only when
+  `ResponsiveAdFieldNames` is requested, on either version; `list_ads` exposes that as the
+  explicit `responsiveAdFieldNames` parameter and adds no field on its own.
+  Answers are parsed by `src/lossless.ts`: an integer past 2^53 (ad ids) arrives as a string.
 - `src/oauth.ts` — the OAuth flow: PKCE pair (S256), authorize URL against
   `https://oauth.yandex.ru/verification_code`, code exchange and refresh. **No `client_secret`** —
   this is a public client, and a secret inside an npm package would protect nothing. Yandex
@@ -88,6 +94,10 @@ More detail in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Tool list: [docs/TOOL
 - **Output compact JSON via `ok`** — the consumer is an LLM; pretty-printing only burns tokens.
 - **Pagination:** single-page tools clamp to `MAX_TOOL_LIMIT`; `autoPaginate` uses
   `getAll` at `DEFAULT_PAGE_LIMIT` and flags `_truncated` instead of silently cutting.
+- **No hidden logic.** A tool sends what the caller asked for: it does not add fields to a
+  request, rename them, or pick an API version without the description saying so. Whatever
+  the API can answer must stay reachable — when a default narrows it (v501 for `adgroups`),
+  an explicit parameter opens the rest (`apiVersion` in `raw_request`).
 - **Runtime guidance for the consuming model goes in the tool `description`,** not in
   this file — the external agent never reads CLAUDE.md. API gotchas (budget minimums,
   bid-modifier rules, field limits) belong in the relevant tool's description.

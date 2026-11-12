@@ -23,6 +23,26 @@ const TEXT_AD_FIELDS = [
 ] as const;
 const TEXT_AD_FIELD_SET: ReadonlySet<string> = new Set(TEXT_AD_FIELDS);
 
+// ResponsiveAdFieldNames, passed to the API as they are. Checked live one by one on v5 and
+// v501 (2026-11-12): the API's code-8000 enumeration also lists TrackingParams, which answers
+// code 4000 "unknown field", so it is left out.
+//
+// Direct stores every ad of a Единая перформанс-кампания as a комбинаторное объявление — ads
+// added as TextAd included — and answers according to what was asked: without a responsive
+// field the ad comes back in the compatibility view (Type TEXT_AD, a TextAd block), with at
+// least one it comes back as RESPONSIVE_AD with ResponsiveAd and no TextAd. The version does
+// not matter, v5 and v501 behave alike. Which view comes back is the caller's choice, stated
+// in the description; the tool never adds a responsive field on its own. PriceExtension is
+// passed through as the API sends it — micros: an ad added with Price 2500000000 (2500 RUB)
+// reads back as 2500000000 on v5 and v501 (checked live 2026-11-12) — which the parameter
+// description says.
+const RESPONSIVE_AD_FIELDS = [
+  "Titles", "Texts", "Href", "FinalUrl", "DisplayDomain", "DisplayUrlPath", "DisplayUrlPathModeration",
+  "DutPrefix", "DutSuffix", "SitelinkSetId", "SitelinksModeration", "AdImages", "AdExtensions",
+  "PriceExtension", "VideoExtensions", "ButtonExtension", "ButtonExtensionModeration", "Carousel",
+  "BusinessId", "TrackingPhoneId", "ErirAdDescription",
+] as const;
+
 const DEFAULT_FIELDS = ["Id", "AdGroupId", "CampaignId", "Status", "State", "Type"];
 
 export function registerAdTools(server: McpServer, client: YandexDirectClient): void {
@@ -32,7 +52,9 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
       title: "Список объявлений",
       annotations: READ_ONLY,
       description:
-        "Возвращает список объявлений. Нужно передать campaignIds, adGroupIds или ids — API Яндекс Директа требует хотя бы один из них; states и statuses только сужают выборку.",
+        "Возвращает список объявлений. Нужно передать campaignIds, adGroupIds или ids — API Яндекс Директа требует хотя бы один из них; states и statuses только сужают выборку. " +
+        "Текстовые объявления Единой перформанс-кампании Директ хранит комбинаторными и отдаёт в одном из двух видов. Без responsiveAdFieldNames — в виде совместимости: Type TEXT_AD, запрошенные тексты в объекте TextAd. " +
+        "Если передано хотя бы одно поле в responsiveAdFieldNames — как Type RESPONSIVE_AD с объектом ResponsiveAd вместо TextAd, где заголовки и тексты — массивы Titles[] и Texts[] со статусом модерации каждого варианта.",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
@@ -43,7 +65,13 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           .array(z.enum([...AD_FIELDS, ...TEXT_AD_FIELDS]))
           .optional()
           .describe(
-            "Какие поля объявления вернуть. Тексты и ссылки (Title, Title2, Text, Href, …) приходят в объекте TextAd.",
+            "Какие поля объявления вернуть; без параметра — Id, AdGroupId, CampaignId, Status, State, Type. Тексты и ссылки (Title, Title2, Text, Href, …) приходят в объекте TextAd. Если переданы только они, в запрос добавляется Id: API не принимает пустой список полей объявления.",
+          ),
+        responsiveAdFieldNames: z
+          .array(z.enum(RESPONSIVE_AD_FIELDS))
+          .optional()
+          .describe(
+            "Поля комбинаторного объявления (ResponsiveAdFieldNames API, передаются как есть). Хотя бы одно поле переключает ответ для комбинаторных объявлений на Type RESPONSIVE_AD с объектом ResponsiveAd вместо TextAd. Цены в PriceExtension (Price, OldPrice) приходят как в API — в микроединицах (× 1 000 000) валюты PriceCurrency, без пересчёта.",
           ),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
@@ -53,7 +81,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           .describe("Забрать все страницы, идя по LimitedBy (limit тогда не ограничивает общий объём)."),
       },
     },
-    async ({ campaignIds, adGroupIds, ids, states, statuses, fieldNames, limit, offset, autoPaginate }) => {
+    async ({ campaignIds, adGroupIds, ids, states, statuses, fieldNames, responsiveAdFieldNames, limit, offset, autoPaginate }) => {
       try {
         if (!campaignIds?.length && !adGroupIds?.length && !ids?.length) {
           return fail(NO_SELECTION("campaignIds, adGroupIds или ids"));
@@ -73,6 +101,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           FieldNames: adFields.length ? adFields : textAdFields.length ? ["Id"] : DEFAULT_FIELDS,
         };
         if (textAdFields.length) params.TextAdFieldNames = textAdFields;
+        if (responsiveAdFieldNames?.length) params.ResponsiveAdFieldNames = responsiveAdFieldNames;
         const page = buildPage(limit, offset);
         if (page) params.Page = page;
         const result = autoPaginate
