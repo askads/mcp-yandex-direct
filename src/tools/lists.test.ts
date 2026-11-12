@@ -98,6 +98,35 @@ test("list_ads: default fields send no TextAdFieldNames", async () => {
   assert.equal("TextAdFieldNames" in calls[0].params, false);
 });
 
+// Without a responsive field Direct reports a комбинаторное объявление as TEXT_AD and hides
+// its texts (checked live 2026-11-12), so the responsive names always travel with the text ones.
+test("list_ads: text fields are also asked as ResponsiveAdFieldNames, mapped and deduplicated", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  await tools.list_ads.handler({
+    campaignIds: [1],
+    fieldNames: ["Id", "Title", "Title2", "Text", "Href", "AdImageHash", "Mobile", "VCardId", "TurboPageId"],
+  });
+  assert.deepEqual(calls[0].params.ResponsiveAdFieldNames, ["Titles", "Texts", "Href", "AdImages"]);
+  assert.deepEqual(calls[0].params.TextAdFieldNames, ["Title", "Title2", "Text", "Href", "AdImageHash", "Mobile", "VCardId", "TurboPageId"]);
+});
+
+test("list_ads: Type without text fields still asks one responsive field, so the type is the real one", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  await tools.list_ads.handler({ campaignIds: [1] });
+  assert.deepEqual(calls[0].params.ResponsiveAdFieldNames, ["Href"]);
+  await tools.list_ads.handler({ campaignIds: [1], fieldNames: ["Id", "Type"] });
+  assert.deepEqual(calls[1].params.ResponsiveAdFieldNames, ["Href"]);
+});
+
+test("list_ads: neither Type nor texts asked sends no ResponsiveAdFieldNames", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  await tools.list_ads.handler({ campaignIds: [1], fieldNames: ["Id", "State"] });
+  assert.equal("ResponsiveAdFieldNames" in calls[0].params, false);
+  // Text fields with no responsive counterpart: nothing to ask, and no Type to keep honest.
+  await tools.list_ads.handler({ campaignIds: [1], fieldNames: ["Mobile"] });
+  assert.equal("ResponsiveAdFieldNames" in calls[1].params, false);
+});
+
 test("list_ads: TextAd fields the API rejects on use are not in the enum", () => {
   // Listed in the API's code-8000 enumeration, but ads.get answers 4000/5006 for them.
   const { schema } = harness(registerAdTools).tools.list_ads;

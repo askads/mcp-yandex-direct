@@ -23,6 +23,23 @@ const TEXT_AD_FIELDS = [
 ] as const;
 const TEXT_AD_FIELD_SET: ReadonlySet<string> = new Set(TEXT_AD_FIELDS);
 
+// The same fields as a комбинаторное объявление names them (ResponsiveAdFieldNames, checked
+// live 2026-11-12). Direct stores every ad of a Единая перформанс-кампания this way — ads
+// added as TextAd included — and answers according to what was asked: with TextAdFieldNames
+// alone the ad comes back as TEXT_AD with a TextAd block, with ResponsiveAdFieldNames as
+// RESPONSIVE_AD with ResponsiveAd (Titles[] and Texts[] instead of Title and Text). v5 and
+// v501 behave alike here. Both lists are sent, so each ad answers as what it is. Mobile,
+// VCardId and TurboPageId have no counterpart.
+const RESPONSIVE_AD_FIELD: Readonly<Record<string, string>> = {
+  Title: "Titles", Title2: "Titles", Text: "Texts", Href: "Href", FinalUrl: "FinalUrl",
+  DisplayDomain: "DisplayDomain", DisplayUrlPath: "DisplayUrlPath", SitelinkSetId: "SitelinkSetId",
+  AdImageHash: "AdImages", AdExtensions: "AdExtensions", BusinessId: "BusinessId",
+  ErirAdDescription: "ErirAdDescription",
+};
+// Asked for when the caller wants Type but no texts: without a single responsive field the
+// API reports a комбинаторное объявление as TEXT_AD (an empty list does not count).
+const RESPONSIVE_TYPE_PROBE = ["Href"];
+
 const DEFAULT_FIELDS = ["Id", "AdGroupId", "CampaignId", "Status", "State", "Type"];
 
 export function registerAdTools(server: McpServer, client: YandexDirectClient): void {
@@ -32,7 +49,9 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
       title: "Список объявлений",
       annotations: READ_ONLY,
       description:
-        "Возвращает список объявлений. Нужно передать campaignIds, adGroupIds или ids — API Яндекс Директа требует хотя бы один из них; states и statuses только сужают выборку.",
+        "Возвращает список объявлений. Нужно передать campaignIds, adGroupIds или ids — API Яндекс Директа требует хотя бы один из них; states и statuses только сужают выборку. " +
+        "Объявления Единой перформанс-кампании — комбинаторные (Type RESPONSIVE_AD): их тексты и ссылки приходят в объекте ResponsiveAd, " +
+        "заголовки и тексты — массивами Titles[] и Texts[] со статусом модерации каждого; у остальных текстовых объявлений (TEXT_AD) — в объекте TextAd.",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
@@ -43,7 +62,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           .array(z.enum([...AD_FIELDS, ...TEXT_AD_FIELDS]))
           .optional()
           .describe(
-            "Какие поля объявления вернуть. Тексты и ссылки (Title, Title2, Text, Href, …) приходят в объекте TextAd.",
+            "Какие поля объявления вернуть. Тексты и ссылки (Title, Title2, Text, Href, …) приходят в объекте TextAd, а у комбинаторного объявления — в ResponsiveAd (Title и Title2 → Titles[], Text → Texts[], AdImageHash → AdImages).",
           ),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
@@ -73,6 +92,10 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           FieldNames: adFields.length ? adFields : textAdFields.length ? ["Id"] : DEFAULT_FIELDS,
         };
         if (textAdFields.length) params.TextAdFieldNames = textAdFields;
+        const responsiveFields = [...new Set(textAdFields.flatMap((f) => RESPONSIVE_AD_FIELD[f] ?? []))];
+        const wantsType = (params.FieldNames as string[]).includes("Type");
+        if (responsiveFields.length) params.ResponsiveAdFieldNames = responsiveFields;
+        else if (wantsType) params.ResponsiveAdFieldNames = RESPONSIVE_TYPE_PROBE;
         const page = buildPage(limit, offset);
         if (page) params.Page = page;
         const result = autoPaginate

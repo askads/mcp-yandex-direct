@@ -175,20 +175,25 @@ test("call() sends Client-Login only when login is configured", async () => {
   }
 });
 
-test("call() sends campaigns to v501 (sandbox stays on v5) and every other service to v5", async () => {
+test("call() sends campaigns and adgroups to v501 (sandbox stays on v5) and every other service to v5", async () => {
   const mock = mockFetch(() => new Response(JSON.stringify({ result: {} }), { status: 200 }));
   try {
     const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false });
     await client.call("campaigns", "get", {});
     await client.call("/Campaigns", "get", {});
     await client.call("adgroups", "get", {});
+    await client.call("ads", "get", {});
     const sandbox = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
     await sandbox.call("campaigns", "get", {});
+    await sandbox.call("adgroups", "get", {});
 
     assert.equal(mock.calls[0].url, "https://api.direct.yandex.com/json/v501/campaigns");
     assert.equal(mock.calls[1].url, "https://api.direct.yandex.com/json/v501/Campaigns");
-    assert.equal(mock.calls[2].url, "https://api.direct.yandex.com/json/v5/adgroups");
-    assert.equal(mock.calls[3].url, "https://api-sandbox.direct.yandex.com/json/v5/campaigns");
+    // v5 reports a UNIFIED_AD_GROUP as TEXT_AD_GROUP; only v501 names it.
+    assert.equal(mock.calls[2].url, "https://api.direct.yandex.com/json/v501/adgroups");
+    assert.equal(mock.calls[3].url, "https://api.direct.yandex.com/json/v5/ads");
+    assert.equal(mock.calls[4].url, "https://api-sandbox.direct.yandex.com/json/v5/campaigns");
+    assert.equal(mock.calls[5].url, "https://api-sandbox.direct.yandex.com/json/v5/adgroups");
   } finally {
     mock.restore();
   }

@@ -18,9 +18,13 @@ const SANDBOX_BASE = "https://api-sandbox.direct.yandex.com/json/v5/";
 
 // v501 is the only version that knows the Единая перформанс-кампания: v5 reports a
 // UNIFIED_CAMPAIGN as TEXT_CAMPAIGN and returns an empty list for Types=[UNIFIED_CAMPAIGN]
-// (checked live). Every other service answered v5 and v501 byte-for-byte alike on the same
-// reads, so only campaigns moves. The sandbox documents only /json/v5/, so it stays there.
-const V501_SERVICES = new Set(["campaigns"]);
+// (checked live). Its ad groups are the same story: v5 calls a UNIFIED_AD_GROUP a
+// TEXT_AD_GROUP, v501 names it and filters by it, and adgroups.add/update/delete take the
+// same bodies there (checked live 2026-11-12). Ads do NOT move: their type depends on the
+// field names requested, not on the version (see list_ads). Every other service answered
+// v5 and v501 byte-for-byte alike on the same reads. The sandbox documents only /json/v5/,
+// so it stays there.
+const V501_SERVICES = new Set(["campaigns", "adgroups"]);
 const PROD_V501_BASE = "https://api.direct.yandex.com/json/v501/";
 
 // Legacy Live v4 API — a DIFFERENT host/path and request shape than v5. Kept only for

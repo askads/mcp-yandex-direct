@@ -41,7 +41,7 @@ YANDEX_DIRECT_SANDBOX=true YANDEX_DIRECT_TOKEN=ваш_токен npm run smoke
 ## E2E-проверка на демо-кабинете (вживую, чтение и запись)
 
 `npm run integration` ходит в **боевой** API (не в песочницу: она живёт в v5, а
-`campaigns` на проде — в v501, см. `src/client.ts`) и проверяет путь, которым идут
+`campaigns` и `adgroups` на проде — в v501, см. `src/client.ts`) и проверяет путь, которым идут
 инструменты:
 
 - чтение — `clients.get` (логин, валюта, квота Units), `campaigns.get` через v501,
