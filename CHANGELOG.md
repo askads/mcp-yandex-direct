@@ -7,7 +7,7 @@
 
 ## [Unreleased]
 
-## [1.13.2] — 2026-11-12
+## [1.14.0] — 2026-11-12
 
 ### Исправлено
 
@@ -554,8 +554,8 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
-[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.2...HEAD
-[1.13.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.1...v1.13.2
+[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.1...v1.14.0
 [1.13.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.0...v1.13.1
 [1.13.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.2...v1.13.0
 [1.12.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...v1.12.2
