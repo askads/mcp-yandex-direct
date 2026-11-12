@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { YandexDirectClient } from "../client.js";
-import { buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
+import { AD_ID_HINT, adId, buildPage, compact, fail, NO_SELECTION, MAX_TOOL_LIMIT, ok, okOrPartial, READ_ONLY, WRITE_CREATE, WRITE_DELETE, WRITE_UPDATE } from "./util.js";
 
 const AD_STATES = ["ON", "OFF", "SUSPENDED", "OFF_BY_MONITORING", "ARCHIVED"] as const;
 const AD_STATUSES = ["ACCEPTED", "DRAFT", "MODERATION", "PREACCEPTED", "REJECTED"] as const;
@@ -36,7 +36,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
-        ids: z.array(z.number().int()).optional().describe("Фильтр по id объявлений."),
+        ids: z.array(adId()).optional().describe(`Фильтр по id объявлений. ${AD_ID_HINT}`),
         states: z.array(z.enum(AD_STATES)).optional().describe("Фильтр по состояниям объявлений."),
         statuses: z.array(z.enum(AD_STATUSES)).optional().describe("Фильтр по статусам модерации."),
         fieldNames: z
@@ -139,7 +139,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
         "Выполняет действие над объявлениями по id: moderate, suspend, resume, archive, unarchive или delete.",
       inputSchema: {
         action: z.enum(["moderate", "suspend", "resume", "archive", "unarchive", "delete"]),
-        ids: z.array(z.number().int()).min(1).describe("Id объявлений, к которым применить действие."),
+        ids: z.array(adId()).min(1).describe(`Id объявлений, к которым применить действие. ${AD_ID_HINT}`),
       },
     },
     async ({ action, ids }) => {
@@ -160,7 +160,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
       description:
         "Обновляет заголовок, текст или посадочную страницу текстового объявления (ads/update). Правка активного объявления отправляет его на повторную модерацию.",
       inputSchema: {
-        id: z.number().int().describe("Id объявления, которое нужно обновить."),
+        id: adId().describe(`Id объявления, которое нужно обновить. ${AD_ID_HINT}`),
         title: z.string().min(1).max(56).optional().describe("Новый заголовок (Title 1), до 56 символов."),
         title2: z.string().max(30).optional().describe("Новый второй заголовок (Title 2), до 30 символов."),
         text: z.string().min(1).max(81).optional().describe("Новый текст объявления, до 81 символа."),

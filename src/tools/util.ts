@@ -35,6 +35,29 @@ export function reportName(prefix: string, params: object, now: Date = new Date(
   return `${prefix}-${hour}-${hash}`;
 }
 
+/**
+ * An ad id as a tool parameter: a number, or a string of digits for the ids a number cannot
+ * hold. Ads added since Direct made them комбинаторные carry 64-bit ids, which the client
+ * returns as strings (see lossless.ts) and Direct accepts back as strings (checked live
+ * 2026-11-12: ads.get, ads.update, ads.suspend). A number past 2^53 was already rounded by
+ * whoever serialized it, so it is refused here instead of being sent to hit 8800 «Объект не
+ * найден» — or, worse, another ad. A factory for the same reason as isoDate.
+ */
+export const adId = () =>
+  z.union([
+    z
+      .number()
+      .int()
+      .refine(Number.isSafeInteger, {
+        message:
+          "Id длиннее 15 цифр нельзя передавать числом — оно теряет точность. Передать id строкой, как он пришёл в ответе (например \"1926766869946816190\").",
+      }),
+    z.string().regex(/^\d+$/, "Id — число или строка из цифр"),
+  ]);
+
+/** Appended to the description of every parameter that takes ad ids. */
+export const AD_ID_HINT = "Длинный id (приходит в ответах строкой) передавать строкой как есть.";
+
 export function ok(data: unknown): CallToolResult {
   // Compact JSON (no indent): the consumer is an LLM, pretty-printing only burns tokens.
   // `JSON.stringify(undefined)` is `undefined` (not a string) — guard it so we never emit
@@ -85,7 +108,7 @@ function collectObjectNotifications(result: unknown): {
         }
       }
       if (Array.isArray(warnings) && warnings.length > 0) {
-        const where = typeof id === "number" ? `Id ${id}` : `объект ${index + 1}`;
+        const where = typeof id === "number" || typeof id === "string" ? `Id ${id}` : `объект ${index + 1}`;
         for (const warn of warnings as ObjectError[]) {
           out.warnings.push(`${where}: ${formatNotification(warn, "Предупреждение без текста")}`);
         }

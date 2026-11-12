@@ -221,3 +221,19 @@ test("delete_ad_groups calls adgroups/delete with the ids", async () => {
   assert.equal(calls[0].method, "delete");
   assert.deepEqual(calls[0].params, { SelectionCriteria: { Ids: [9, 10] } });
 });
+
+// Ads added since Direct made them комбинаторные have 64-bit ids; they travel as strings.
+test("update_text_ad sends a long id as the string it was given", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  const res = await tools.update_text_ad({ id: "1926766869946816190", title: "Hi" });
+  assert.equal(res.isError, undefined);
+  assert.deepEqual(calls[0].params.Ads[0], { Id: "1926766869946816190", TextAd: { Title: "Hi" } });
+});
+
+test("ad_action sends long ids as strings next to ordinary numbers", async () => {
+  const { calls, tools } = harness(registerAdTools);
+  const res = await tools.ad_action({ action: "suspend", ids: ["1926766869946816190", 17674525094] });
+  assert.equal(res.isError, undefined);
+  assert.equal(calls[0].method, "suspend");
+  assert.deepEqual(calls[0].params, { SelectionCriteria: { Ids: ["1926766869946816190", 17674525094] } });
+});
