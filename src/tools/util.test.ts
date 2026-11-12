@@ -4,6 +4,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   DEFAULT_PAGE_LIMIT,
   buildPage,
+  adId,
   compact,
   fail,
   isoDate,
@@ -193,4 +194,16 @@ test("normalizeMoney leaves null, ids and unknown keys alone", () => {
   assert.equal(result.Campaigns[0].Funds, null);
   assert.equal(result.Campaigns[0].Id, 7);
   assert.equal(result.Campaigns[1].Amount, 1_000_000, "Amount is not a v5 money key anymore");
+});
+
+test("adId takes a number or a string of digits and refuses a number that lost precision", () => {
+  const schema = adId();
+  assert.equal(schema.parse(17674525094), 17674525094);
+  assert.equal(schema.parse("1926766869946816190"), "1926766869946816190");
+  // 1926766869946816190 written as a number is already 1926766869946816300: another ad.
+  const rounded = schema.safeParse(1926766869946816190);
+  assert.equal(rounded.success, false);
+  assert.match(JSON.stringify(rounded.error?.issues), /строкой/);
+  assert.equal(schema.safeParse("12a").success, false);
+  assert.equal(schema.safeParse(1.5).success, false);
 });

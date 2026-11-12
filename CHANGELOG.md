@@ -7,6 +7,21 @@
 
 ## [Unreleased]
 
+## [1.13.2] — 2026-11-12
+
+### Исправлено
+
+- `update_text_ad` и `ad_action` отвечали «[8800] Объект не найден» на объявления, созданные
+  через API. Директ теперь сохраняет такие объявления комбинаторными и выдаёт им 64-битные id
+  (например, 1926766869946816190), а число JavaScript хранит целые точно только до 2^53: id
+  округлялся ещё при разборе ответа (до 1926766869946816300), и следующий вызов уходил с
+  несуществующим id. По телеметрии с 2 ноября не прошёл ни один из 11 вызовов `update_text_ad`,
+  `ad_action` — 2 из 11. Теперь id, который не помещается в число, приходит во всех ответах
+  строкой с точными цифрами (остальные числа не меняются), а `list_ads`, `ad_action` и
+  `update_text_ad` принимают id объявления и числом, и строкой. Число, уже потерявшее точность,
+  отклоняется до запроса с подсказкой передать id строкой. Проверено на живом кабинете:
+  `ads.get`, `ads.update` и `ads.delete` принимают id строкой.
+
 ## [1.13.1] — 2026-11-07
 
 ### Исправлено
@@ -522,7 +537,9 @@
   `LimitedBy`), ретраи транзиентных ошибок, квота из заголовка `Units`, валидация дат и
   длин текстов.
 
-[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.2...HEAD
+[1.13.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.1...v1.13.2
+[1.13.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.13.0...v1.13.1
 [1.13.0]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.2...v1.13.0
 [1.12.2]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.1...v1.12.2
 [1.12.1]: https://github.com/askads/mcp-yandex-direct/compare/v1.12.0...v1.12.1

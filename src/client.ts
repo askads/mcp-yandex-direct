@@ -1,5 +1,6 @@
 import { AuthRequiredError, RELOGIN_MESSAGE, TokenStore } from "./auth.js";
 import { currentClientLogin } from "./clientLogin.js";
+import { parseJsonLossless } from "./lossless.js";
 import type { ApiError, YandexDirectConfig } from "./types.js";
 import {
   ClientAccessError,
@@ -341,7 +342,8 @@ export class YandexDirectClient {
 
       let data: { result?: T; error?: ApiError };
       try {
-        data = text ? JSON.parse(text) : {};
+        // Lossless: ids beyond 2^53 come back as strings instead of rounded numbers.
+        data = text ? (parseJsonLossless(text) as { result?: T; error?: ApiError }) : {};
       } catch {
         throw new Error(
           `Некорректный JSON в ответе "${service}" (HTTP ${res.status}): ${text.slice(0, 500)}`,
