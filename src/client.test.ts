@@ -199,6 +199,34 @@ test("call() sends campaigns and adgroups to v501 (sandbox stays on v5) and ever
   }
 });
 
+test("call() with an explicit apiVersion overrides the default routing in both directions", async () => {
+  const mock = mockFetch(() => new Response(JSON.stringify({ result: {} }), { status: 200 }));
+  try {
+    const client = new YandexDirectClient({ token: "T", lang: "ru", sandbox: false });
+    await client.call("adgroups", "get", {}, { apiVersion: "v5" });
+    await client.call("campaigns", "get", {}, { apiVersion: "v5" });
+    await client.call("ads", "get", {}, { apiVersion: "v501" });
+    assert.equal(mock.calls[0].url, "https://api.direct.yandex.com/json/v5/adgroups");
+    assert.equal(mock.calls[1].url, "https://api.direct.yandex.com/json/v5/campaigns");
+    assert.equal(mock.calls[2].url, "https://api.direct.yandex.com/json/v501/ads");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("call() refuses an explicit v501 in the sandbox instead of quietly answering from v5", async () => {
+  const mock = mockFetch(() => new Response(JSON.stringify({ result: {} }), { status: 200 }));
+  try {
+    const sandbox = new YandexDirectClient({ token: "T", lang: "ru", sandbox: true });
+    await assert.rejects(() => sandbox.call("adgroups", "get", {}, { apiVersion: "v501" }), /только с API v5/);
+    assert.equal(mock.calls.length, 0);
+    await sandbox.call("adgroups", "get", {}, { apiVersion: "v5" });
+    assert.equal(mock.calls[0].url, "https://api-sandbox.direct.yandex.com/json/v5/adgroups");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("call() throws YandexDirectError on API error payload", async () => {
   const mock = mockFetch(
     () =>

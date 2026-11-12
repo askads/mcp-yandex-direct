@@ -18,7 +18,8 @@ export function registerAdGroupTools(server: McpServer, client: YandexDirectClie
       title: "Список групп объявлений",
       annotations: READ_ONLY,
       description:
-        "Возвращает список групп объявлений. Нужно передать campaignIds и/или ids — API Яндекс Директа требует хотя бы один критерий отбора.",
+        "Возвращает список групп объявлений. Нужно передать campaignIds и/или ids — API Яндекс Директа требует хотя бы один критерий отбора. " +
+        "Запрос идёт в API v501: группы Единой перформанс-кампании приходят с Type UNIFIED_AD_GROUP (v5 называет их TEXT_AD_GROUP; ответ v5 доступен через raw_request с apiVersion \"v5\").",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         ids: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),

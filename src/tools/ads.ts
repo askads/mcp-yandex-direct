@@ -23,22 +23,22 @@ const TEXT_AD_FIELDS = [
 ] as const;
 const TEXT_AD_FIELD_SET: ReadonlySet<string> = new Set(TEXT_AD_FIELDS);
 
-// The same fields as a комбинаторное объявление names them (ResponsiveAdFieldNames, checked
-// live 2026-11-12). Direct stores every ad of a Единая перформанс-кампания this way — ads
-// added as TextAd included — and answers according to what was asked: with TextAdFieldNames
-// alone the ad comes back as TEXT_AD with a TextAd block, with ResponsiveAdFieldNames as
-// RESPONSIVE_AD with ResponsiveAd (Titles[] and Texts[] instead of Title and Text). v5 and
-// v501 behave alike here. Both lists are sent, so each ad answers as what it is. Mobile,
-// VCardId and TurboPageId have no counterpart.
-const RESPONSIVE_AD_FIELD: Readonly<Record<string, string>> = {
-  Title: "Titles", Title2: "Titles", Text: "Texts", Href: "Href", FinalUrl: "FinalUrl",
-  DisplayDomain: "DisplayDomain", DisplayUrlPath: "DisplayUrlPath", SitelinkSetId: "SitelinkSetId",
-  AdImageHash: "AdImages", AdExtensions: "AdExtensions", BusinessId: "BusinessId",
-  ErirAdDescription: "ErirAdDescription",
-};
-// Asked for when the caller wants Type but no texts: without a single responsive field the
-// API reports a комбинаторное объявление as TEXT_AD (an empty list does not count).
-const RESPONSIVE_TYPE_PROBE = ["Href"];
+// ResponsiveAdFieldNames, passed to the API as they are. Checked live one by one on v5 and
+// v501 (2026-11-12): the API's code-8000 enumeration also lists TrackingParams, which answers
+// code 4000 "unknown field", so it is left out.
+//
+// Direct stores every ad of a Единая перформанс-кампания as a комбинаторное объявление — ads
+// added as TextAd included — and answers according to what was asked: without a responsive
+// field the ad comes back in the compatibility view (Type TEXT_AD, a TextAd block), with at
+// least one it comes back as RESPONSIVE_AD with ResponsiveAd and no TextAd. The version does
+// not matter, v5 and v501 behave alike. The tool adds nothing on its own: which view comes
+// back is the caller's choice, stated in the description.
+const RESPONSIVE_AD_FIELDS = [
+  "Titles", "Texts", "Href", "FinalUrl", "DisplayDomain", "DisplayUrlPath", "DisplayUrlPathModeration",
+  "DutPrefix", "DutSuffix", "SitelinkSetId", "SitelinksModeration", "AdImages", "AdExtensions",
+  "PriceExtension", "VideoExtensions", "ButtonExtension", "ButtonExtensionModeration", "Carousel",
+  "BusinessId", "TrackingPhoneId", "ErirAdDescription",
+] as const;
 
 const DEFAULT_FIELDS = ["Id", "AdGroupId", "CampaignId", "Status", "State", "Type"];
 
@@ -50,8 +50,9 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
       annotations: READ_ONLY,
       description:
         "Возвращает список объявлений. Нужно передать campaignIds, adGroupIds или ids — API Яндекс Директа требует хотя бы один из них; states и statuses только сужают выборку. " +
-        "Объявления Единой перформанс-кампании — комбинаторные (Type RESPONSIVE_AD): их тексты и ссылки приходят в объекте ResponsiveAd, " +
-        "заголовки и тексты — массивами Titles[] и Texts[] со статусом модерации каждого; у остальных текстовых объявлений (TEXT_AD) — в объекте TextAd.",
+        "Объявления Единой перформанс-кампании Директ хранит комбинаторными, а вид ответа зависит от запрошенных полей: без responsiveAdFieldNames такое объявление приходит в виде совместимости — Type TEXT_AD и объект TextAd; " +
+        "если передать хотя бы одно поле в responsiveAdFieldNames, оно приходит как Type RESPONSIVE_AD с объектом ResponsiveAd (без TextAd), где заголовки и тексты — массивы Titles[] и Texts[] со статусом модерации каждого варианта. " +
+        "Обычные текстовые объявления всегда приходят как TEXT_AD с TextAd. Сам инструмент полей в запрос не добавляет.",
       inputSchema: {
         campaignIds: z.array(z.number().int()).optional().describe("Фильтр по id кампаний."),
         adGroupIds: z.array(z.number().int()).optional().describe("Фильтр по id групп объявлений."),
@@ -62,7 +63,13 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           .array(z.enum([...AD_FIELDS, ...TEXT_AD_FIELDS]))
           .optional()
           .describe(
-            "Какие поля объявления вернуть. Тексты и ссылки (Title, Title2, Text, Href, …) приходят в объекте TextAd, а у комбинаторного объявления — в ResponsiveAd (Title и Title2 → Titles[], Text → Texts[], AdImageHash → AdImages).",
+            "Какие поля объявления вернуть. Тексты и ссылки (Title, Title2, Text, Href, …) приходят в объекте TextAd.",
+          ),
+        responsiveAdFieldNames: z
+          .array(z.enum(RESPONSIVE_AD_FIELDS))
+          .optional()
+          .describe(
+            "Поля комбинаторного объявления (ResponsiveAdFieldNames API, передаются как есть). Хотя бы одно поле переключает ответ для комбинаторных объявлений на Type RESPONSIVE_AD с объектом ResponsiveAd вместо TextAd.",
           ),
         limit: z.number().int().min(1).max(MAX_TOOL_LIMIT).optional().describe("Максимум объектов на страницу."),
         offset: z.number().int().min(0).optional().describe("Смещение постраничной выдачи (сколько объектов пропустить)."),
@@ -72,7 +79,7 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
           .describe("Забрать все страницы, идя по LimitedBy (limit тогда не ограничивает общий объём)."),
       },
     },
-    async ({ campaignIds, adGroupIds, ids, states, statuses, fieldNames, limit, offset, autoPaginate }) => {
+    async ({ campaignIds, adGroupIds, ids, states, statuses, fieldNames, responsiveAdFieldNames, limit, offset, autoPaginate }) => {
       try {
         if (!campaignIds?.length && !adGroupIds?.length && !ids?.length) {
           return fail(NO_SELECTION("campaignIds, adGroupIds или ids"));
@@ -89,13 +96,14 @@ export function registerAdTools(server: McpServer, client: YandexDirectClient): 
         const params: Record<string, unknown> = {
           SelectionCriteria: selection,
           // FieldNames may not be empty: asking only for texts still returns the ids.
-          FieldNames: adFields.length ? adFields : textAdFields.length ? ["Id"] : DEFAULT_FIELDS,
+          FieldNames: adFields.length
+            ? adFields
+            : textAdFields.length || responsiveAdFieldNames?.length
+              ? ["Id"]
+              : DEFAULT_FIELDS,
         };
         if (textAdFields.length) params.TextAdFieldNames = textAdFields;
-        const responsiveFields = [...new Set(textAdFields.flatMap((f) => RESPONSIVE_AD_FIELD[f] ?? []))];
-        const wantsType = (params.FieldNames as string[]).includes("Type");
-        if (responsiveFields.length) params.ResponsiveAdFieldNames = responsiveFields;
-        else if (wantsType) params.ResponsiveAdFieldNames = RESPONSIVE_TYPE_PROBE;
+        if (responsiveAdFieldNames?.length) params.ResponsiveAdFieldNames = responsiveAdFieldNames;
         const page = buildPage(limit, offset);
         if (page) params.Page = page;
         const result = autoPaginate
