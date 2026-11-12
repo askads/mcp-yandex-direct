@@ -33,7 +33,9 @@ const TEXT_AD_FIELD_SET: ReadonlySet<string> = new Set(TEXT_AD_FIELDS);
 // least one it comes back as RESPONSIVE_AD with ResponsiveAd and no TextAd. The version does
 // not matter, v5 and v501 behave alike. Which view comes back is the caller's choice, stated
 // in the description; the tool never adds a responsive field on its own. PriceExtension is
-// passed through as the API sends it (micros), which the parameter description says.
+// passed through as the API sends it — micros: an ad added with Price 2500000000 (2500 RUB)
+// reads back as 2500000000 on v5 and v501 (checked live 2026-11-12) — which the parameter
+// description says.
 const RESPONSIVE_AD_FIELDS = [
   "Titles", "Texts", "Href", "FinalUrl", "DisplayDomain", "DisplayUrlPath", "DisplayUrlPathModeration",
   "DutPrefix", "DutSuffix", "SitelinkSetId", "SitelinksModeration", "AdImages", "AdExtensions",
